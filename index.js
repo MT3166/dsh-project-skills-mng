@@ -529,7 +529,7 @@ function validateSkillContent(content, name) {
 function createApi(ctx) {
   const session = (payload) => resolveSession(ctx, payload?.sessionId)
 
-  return {
+  const api = {
     async roots(payload) {
       const resolved = await session(payload)
       return { cwd: resolved.cwd, projectRoot: resolved.projectRoot, roots: await describeRoots(resolved.projectRoot) }
@@ -718,6 +718,65 @@ function createApi(ctx) {
       }
     },
   }
+
+  const BATCH_LIMIT = 100
+
+  /** Run one batch item through the single-item handler it belongs to. */
+  async function runBatchItem(operation, item, payload) {
+    try {
+      const value = await operation(item, payload)
+      return { name: item.name, rootId: item.rootId, ok: true, ...value }
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { name: item.name, rootId: item.rootId, ok: false, code: error.code, message: error.message }
+      }
+      throw error
+    }
+  }
+
+  api.batch = async (payload) => {
+    const items = Array.isArray(payload.items) ? payload.items : undefined
+    if (items === undefined || items.length === 0) {
+      throw new ApiError('INVALID_PAYLOAD', 'items must be a non-empty array')
+    }
+    if (items.length > BATCH_LIMIT) {
+      throw new ApiError('TOO_MANY_ITEMS', `at most ${BATCH_LIMIT} items can be changed at once`)
+    }
+    const action = payload.action
+    const context = { sessionId: payload.sessionId }
+    let operation
+    if (action === 'delete') {
+      operation = (item) => api.delete({ ...context, ...item })
+    } else if (action === 'invocation') {
+      const invocation = payload.invocation ?? {}
+      if (invocation.field !== 'model' && invocation.field !== 'user') {
+        throw new ApiError('INVALID_PAYLOAD', 'invocation.field must be "model" or "user"')
+      }
+      if (typeof invocation.value !== 'boolean') {
+        throw new ApiError('INVALID_PAYLOAD', 'invocation.value must be a boolean')
+      }
+      operation = (item) => api.toggle({ ...context, ...item, field: invocation.field, value: invocation.value })
+    } else if (action === 'transfer') {
+      operation = async () => {
+        throw new ApiError('INVALID_ACTION', 'transfer is not implemented yet')
+      }
+    } else {
+      throw new ApiError('INVALID_ACTION', `unknown batch action: ${String(action)}`)
+    }
+
+    const results = []
+    for (const item of items) {
+      const entry = item ?? {}
+      results.push(await runBatchItem(operation, { name: String(entry.name ?? ''), rootId: entry.rootId }, payload))
+    }
+    const succeeded = results.filter((result) => result.ok).length
+    return {
+      summary: { total: results.length, succeeded, failed: results.length - succeeded },
+      results,
+    }
+  }
+
+  return api
 }
 
 /* ------------------------------------------------------------------ *

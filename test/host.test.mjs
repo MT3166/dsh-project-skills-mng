@@ -387,3 +387,64 @@ test('unknown sessions are reported as data, not a transport failure', async () 
     assert.equal(response.body.error.code, 'SESSION_NOT_FOUND')
   })
 })
+
+test('batch delete reports per-item success and failure', async () => {
+  await withSandbox(async ({ call, projectDir }) => {
+    const skills = join(projectDir, '.dsh', 'skills')
+    for (const name of ['one-skill', 'two-skill']) {
+      await mkdir(join(skills, name), { recursive: true })
+      await writeFile(join(skills, name, 'SKILL.md'), SKILL.replaceAll('demo-skill', name))
+    }
+
+    const response = await call('batch', {
+      action: 'delete',
+      items: [
+        { name: 'one-skill', rootId: 'project-dsh' },
+        { name: 'missing-skill', rootId: 'project-dsh' },
+        { name: 'two-skill', rootId: 'project-dsh' },
+      ],
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.deepEqual(response.body.summary, { total: 3, succeeded: 2, failed: 1 })
+    assert.equal(response.body.results[0].ok, true)
+    assert.equal(response.body.results[1].ok, false)
+    assert.equal(response.body.results[1].code, 'SKILL_NOT_FOUND')
+    assert.equal(response.body.results[2].ok, true)
+    await assert.rejects(stat(join(skills, 'one-skill')))
+    await assert.rejects(stat(join(skills, 'two-skill')))
+  })
+})
+
+test('batch invocation flips the model flag on every item', async () => {
+  await withSandbox(async ({ call, projectDir }) => {
+    const skills = join(projectDir, '.dsh', 'skills')
+    for (const name of ['alpha-skill', 'beta-skill']) {
+      await mkdir(join(skills, name), { recursive: true })
+      await writeFile(join(skills, name, 'SKILL.md'), SKILL.replaceAll('demo-skill', name))
+    }
+
+    const response = await call('batch', {
+      action: 'invocation',
+      invocation: { field: 'model', value: false },
+      items: [
+        { name: 'alpha-skill', rootId: 'project-dsh' },
+        { name: 'beta-skill', rootId: 'project-dsh' },
+      ],
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.deepEqual(response.body.summary, { total: 2, succeeded: 2, failed: 0 })
+    for (const name of ['alpha-skill', 'beta-skill']) {
+      assert.match(await readFile(join(skills, name, 'SKILL.md'), 'utf8'), /disable-model-invocation: true/)
+    }
+  })
+})
+
+test('batch rejects more than one hundred items', async () => {
+  await withSandbox(async ({ call }) => {
+    const items = Array.from({ length: 101 }, (_, index) => ({ name: `skill-${index}`, rootId: 'project-dsh' }))
+    const response = await call('batch', { action: 'delete', items })
+    assert.equal(response.body.ok, false)
+    assert.equal(response.body.error.code, 'TOO_MANY_ITEMS')
+  })
+})
+
