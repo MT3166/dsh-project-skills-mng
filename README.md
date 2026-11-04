@@ -19,7 +19,13 @@ DSH 原生已经会在会话里发现技能文件：项目技能位于 `<project
 
 ## 安装
 
-在 DSH 里安装本目录（bundle 包）：
+仓库地址：<https://github.com/MT3166/dsh-project-skills-mng>
+
+```text
+git clone git@github.com:MT3166/dsh-project-skills-mng.git
+```
+
+在 DSH 里安装克隆下来的目录（bundle 包）：
 
 ```text
 plugin_manager action=install_bundle target=<本仓库绝对路径>
@@ -44,11 +50,11 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
 
 ## 验证
 
-- `test/host.test.mjs`（10 项）：假 ctx 覆盖 list 分组/覆盖判定、按 rootId 读取被覆盖技能、
+- `test/host.test.mjs`（12 项）：假 ctx 覆盖 list 分组/覆盖判定、按 rootId 读取被覆盖技能、
   write→read 往返、toggle 保留正文、平铺 `<name>.md` 原地覆盖、`skills_manage` 的
   create/update→write 映射、delete、非法名（`../escape`、`a/b`、`UPPER`、空名）、
   frontmatter 名不匹配、缺失根可写、未知会话返回 `SESSION_NOT_FOUND`。
-- `test/client.smoke.mjs`（11 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
+- `test/client.smoke.mjs`（12 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
   zh/en key 对齐、样式注入与清理、空态零请求、相对 URL + sessionId、分组渲染、
   详情→toggle→编辑→保存往返、新建模板、被覆盖行按自身 rootId 读取/删除/编辑。
 - `test/probe.mjs`：在真实 `~/.dsh/skills`、`~/.agents/skills` 上跑完整 list，得到
@@ -84,3 +90,7 @@ msedge --headless=new --disable-gpu --hide-scrollbars --force-device-scale-facto
 - `cordis.patch.yml` — 把 `dsh-project-skills` 这一行插入 profile；
 - `locale/{en,zh}.json` — bundle 的标题/描述；
 - `docs/superpowers/plans/` — 设计与实现计划。
+
+## License
+
+MIT © 2026 MT3166，见 [LICENSE](./LICENSE)。
