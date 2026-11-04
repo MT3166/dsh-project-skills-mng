@@ -8,7 +8,8 @@ DSH 原生已经会在会话里发现技能文件：项目技能位于 `<project
 
 - 右栏 guide 页常驻入口「项目技能」，点开才展开面板，不会自己弹出来；
 - 面板按 **Project / Global** 分组列出当前会话生效的技能，显示来源目录、相对路径、
-  模型可调用（M）/ 用户可调用（U）标记，以及同名的**被覆盖**条目；
+  模型可调用（M）/ 用户可调用（U）标记，以及同名的**被覆盖**条目；被覆盖的条目照样
+  可以打开、编辑、删除——操作落在它自己所在的根上，不会动到胜出的那条同名技能；
 - 支持新建、编辑、删除 `SKILL.md`，切换两个调用开关，frontmatter 校验与
   frontmatter 之外正文的原样保留；
 - 同时注册一个 `skills_manage` 工具，让模型可以复用同一套读写逻辑。
@@ -43,12 +44,13 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
 
 ## 验证
 
-- `test/host.test.mjs`（7 项）：假 ctx 覆盖 list 分组/覆盖判定、write→read 往返、toggle 保留正文、
-  delete、非法名（`../escape`、`a/b`、`UPPER`、空名）、frontmatter 名不匹配、缺失根可写、
-  未知会话返回 `SESSION_NOT_FOUND`。
-- `test/client.smoke.mjs`（10 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
+- `test/host.test.mjs`（10 项）：假 ctx 覆盖 list 分组/覆盖判定、按 rootId 读取被覆盖技能、
+  write→read 往返、toggle 保留正文、平铺 `<name>.md` 原地覆盖、`skills_manage` 的
+  create/update→write 映射、delete、非法名（`../escape`、`a/b`、`UPPER`、空名）、
+  frontmatter 名不匹配、缺失根可写、未知会话返回 `SESSION_NOT_FOUND`。
+- `test/client.smoke.mjs`（11 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
   zh/en key 对齐、样式注入与清理、空态零请求、相对 URL + sessionId、分组渲染、
-  详情→toggle→编辑→保存往返、新建模板、被覆盖行按 rootId 删除。
+  详情→toggle→编辑→保存往返、新建模板、被覆盖行按自身 rootId 读取/删除/编辑。
 - `test/probe.mjs`：在真实 `~/.dsh/skills`、`~/.agents/skills` 上跑完整 list，得到
   `{project:1, global:44, total:45, shadowed:20, broken:0}`（20 条同名覆盖按 rank 正确标出）。
 - 真实 GUI：右栏 guide 卡片「项目技能」点开即面板，Project/Global 分组正常。
