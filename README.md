@@ -1,5 +1,7 @@
 # dsh-project-skills
 
+[![test](https://github.com/MT3166/dsh-project-skills-mng/actions/workflows/test.yml/badge.svg)](https://github.com/MT3166/dsh-project-skills-mng/actions/workflows/test.yml)
+
 在 DSH 右侧栏浏览与管理**项目级技能**（project skills）和**全局技能**（global skills）。
 
 DSH 原生已经会在会话里发现技能文件：项目技能位于 `<projectRoot>/.dsh/skills` 与
