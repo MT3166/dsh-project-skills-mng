@@ -123,9 +123,9 @@ Steps:
 
 ## Status
 
-- [ ] Task 1
-- [ ] Task 2
-- [ ] Task 3
-- [ ] Task 4
-- [ ] Task 5
-- [ ] Task 6
+- [x] Task 1 — lock reading + list fields (commit 441834f)
+- [x] Task 2 — checkUpdates (commit 441834f; codeload fix 8a76d47)
+- [x] Task 3 — updateSkills (commit 441834f; real-host update of executing-plans verified)
+- [x] Task 4 — client half (client-dev; source badges, three filter rows, check strip, missing group, batch update)
+- [x] Task 5 — previews + README (filter chips fold behind a button; 26 preview states; screenshots in docs/screenshots)
+- [ ] Task 6 — install, restart, real GUI verification

@@ -130,6 +130,8 @@ window.__ModuleLoader__.load({
 
       'filter.search': '搜索名称或描述',
       'filter.clear': '清除筛选',
+      'filter.show': '筛选',
+      'filter.hide': '收起筛选',
       'filter.tier': '层级筛选',
       'filter.modelOff': 'M 关闭',
       'filter.userOff': 'U 关闭',
@@ -169,8 +171,66 @@ window.__ModuleLoader__.load({
       'code.INVALID_TARGET': '目标层不可用',
       'code.TOO_MANY_ITEMS': '一次最多处理 100 个技能',
       'code.DELETE_FAILED': '删除失败',
+      'code.LOCAL_CHANGES': '本地文件有改动',
+      'code.NOT_MANAGED': '该技能没有上游来源',
+      'code.BUSY': '另一个更新正在进行，请稍后再试',
+      'code.RATE_LIMITED': '上游请求被限流',
+      'code.UNSUPPORTED_SOURCE': '不支持该上游来源',
+      'code.LOCK_INVALID': '上游清单文件无法解析',
+      'code.LOCK_VERSION_UNSUPPORTED': '上游清单版本不受支持',
+      'code.PACKAGE_TOO_LARGE': '上游包超过大小限制',
       'error.sourceRemoveFailed':
         '副本已写入目标层，但源条目删除失败，请手动删除源条目。',
+
+      'filter.group.tier': '层级',
+      'filter.group.attr': '属性',
+      'filter.group.source': '来源',
+      'filter.source.local': '本地',
+      'filter.source.more': '+{count}',
+      'badge.local': '本地',
+      'badge.update': '有更新',
+      'badge.updateWithHash': '可更新 · {hash}',
+
+      'check.button': '检查更新',
+      'check.running': '检查中…',
+      'check.available': '{count} 个可更新',
+      'check.uptodate': '全部是最新版本',
+      'check.unknown': '{count} 个无法确认',
+      'check.reasonUnknown': '无法确认原因',
+      'check.expand': '查看原因',
+      'check.collapse': '收起',
+      'check.reason': '{name}：{reason}',
+
+      'detail.checkUpdate': '检查更新',
+      'detail.update': '更新到此技能',
+      'detail.checking': '检查中…',
+      'detail.updating': '更新中…',
+      'detail.checkAvailable': '有新版本可更新',
+      'detail.checkUptodate': '已是最新版本',
+      'detail.checkUnknown': '无法确认：{reason}',
+      'detail.updateDone': '已更新',
+      'detail.installDone': '已安装',
+      'detail.sourceRepo': '仓库',
+      'detail.sourcePath': '仓库内路径',
+      'detail.sourceInstalled': '安装时间',
+      'detail.sourceUpdated': '更新时间',
+      'detail.sourceHash': '上游哈希',
+      'detail.sourceLocal': '本地技能，未由 skills CLI 安装。',
+      'detail.forceConfirm':
+        '本地文件有改动，更新会覆盖它们（旧目录会保留 .bak 备份）。强制更新？',
+      'detail.forceYes': '强制更新',
+      'detail.forceCancel': '取消',
+
+      'missing.title': '仅在清单中',
+      'missing.note': '清单里有这个技能，但本机还没有安装。',
+      'missing.install': '安装',
+      'missing.installing': '安装中…',
+
+      'batch.update': '更新选中',
+      'batch.updating': '更新中…',
+
+      'detail.updateFailed': '更新失败',
+      'missing.installFailed': '安装失败',
     }
 
     const en = {
@@ -262,6 +322,8 @@ window.__ModuleLoader__.load({
 
       'filter.search': 'Search name or description',
       'filter.clear': 'Clear filters',
+      'filter.show': 'Filters',
+      'filter.hide': 'Hide filters',
       'filter.tier': 'Filter by tier',
       'filter.modelOff': 'M off',
       'filter.userOff': 'U off',
@@ -302,8 +364,66 @@ window.__ModuleLoader__.load({
       'code.INVALID_TARGET': 'The target tier is not usable',
       'code.TOO_MANY_ITEMS': 'At most 100 skills can be handled at once',
       'code.DELETE_FAILED': 'The delete failed',
+      'code.LOCAL_CHANGES': 'Local files have changed',
+      'code.NOT_MANAGED': 'This skill has no upstream source',
+      'code.BUSY': 'Another update is already running, try again later',
+      'code.RATE_LIMITED': 'The upstream request was rate-limited',
+      'code.UNSUPPORTED_SOURCE': 'This upstream source is not supported',
+      'code.LOCK_INVALID': 'The upstream manifest could not be parsed',
+      'code.LOCK_VERSION_UNSUPPORTED': 'The upstream manifest version is not supported',
+      'code.PACKAGE_TOO_LARGE': 'The upstream package exceeds the size limit',
       'error.sourceRemoveFailed':
         'The copy was written to the target tier, but the source entry could not be removed; delete it manually.',
+
+      'filter.group.tier': 'Tier',
+      'filter.group.attr': 'Attributes',
+      'filter.group.source': 'Source',
+      'filter.source.local': 'Local',
+      'filter.source.more': '+{count}',
+      'badge.local': 'Local',
+      'badge.update': 'Update available',
+      'badge.updateWithHash': 'Update available · {hash}',
+
+      'check.button': 'Check for updates',
+      'check.running': 'Checking…',
+      'check.available': '{count} update(s) available',
+      'check.uptodate': 'Everything is up to date',
+      'check.unknown': '{count} could not be verified',
+      'check.reasonUnknown': 'Reason unknown',
+      'check.expand': 'Show reasons',
+      'check.collapse': 'Hide',
+      'check.reason': '{name}: {reason}',
+
+      'detail.checkUpdate': 'Check for updates',
+      'detail.update': 'Update this skill',
+      'detail.checking': 'Checking…',
+      'detail.updating': 'Updating…',
+      'detail.checkAvailable': 'An update is available',
+      'detail.checkUptodate': 'Up to date',
+      'detail.checkUnknown': 'Could not verify: {reason}',
+      'detail.updateDone': 'Updated',
+      'detail.installDone': 'Installed',
+      'detail.sourceRepo': 'Repository',
+      'detail.sourcePath': 'Path in repository',
+      'detail.sourceInstalled': 'Installed',
+      'detail.sourceUpdated': 'Updated',
+      'detail.sourceHash': 'Upstream hash',
+      'detail.sourceLocal': 'Local skill, not installed by the skills CLI.',
+      'detail.forceConfirm':
+        'Local files have changed; updating overwrites them (the old directory is kept as a .bak backup). Force update?',
+      'detail.forceYes': 'Force update',
+      'detail.forceCancel': 'Cancel',
+
+      'missing.title': 'Only in manifest',
+      'missing.note': 'The manifest lists this skill, but it is not installed locally.',
+      'missing.install': 'Install',
+      'missing.installing': 'Installing…',
+
+      'batch.update': 'Update selected',
+      'batch.updating': 'Updating…',
+
+      'detail.updateFailed': 'Update failed',
+      'missing.installFailed': 'Install failed',
     }
 
     /* ------------------------------------------------------------------ *
@@ -313,6 +433,7 @@ window.__ModuleLoader__.load({
     const CSS = `
 .dps-root {
   box-sizing: border-box;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -362,8 +483,18 @@ window.__ModuleLoader__.load({
 .dps-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   flex: none;
+  min-width: 0;
+}
+/* Secondary actions travel together so they can wrap below the title instead
+   of squeezing the primary action. */
+.dps-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
   min-width: 0;
 }
 .dps-title {
@@ -895,9 +1026,39 @@ window.__ModuleLoader__.load({
 .dps-filterbar {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+.dps-filter-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dps-filter-head .dps-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+.dps-filter-toggle {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+.dps-filter-toggle[data-open='true'] {
+  border-color: var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-primary);
+}
+.dps-filter-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+}
+.dps-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 2px;
 }
 .dps-search {
   box-sizing: border-box;
@@ -1057,6 +1218,78 @@ window.__ModuleLoader__.load({
   font-size: var(--dsh-content-font-size-tertiary, 11px);
 }
 .dps-failure { overflow-wrap: anywhere; }
+
+/* Per-dimension filter rows: tier / attributes / source. */
+.dps-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dps-filter-label {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
+}
+@container (max-width: 340px) {
+  .dps-filter-label { flex-basis: 100%; }
+}
+
+/* Source badge on a row and the "update available" dot. */
+.dps-badge-source { color: var(--dsw-alias-label-secondary); }
+.dps-update-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+}
+.dps-row-missing { cursor: default; }
+.dps-row-missing .dps-name,
+.dps-row-missing .dps-desc { opacity: 0.55; }
+.dps-row-missing .dps-btn { margin-left: auto; }
+.dps-group-missing .dps-group-head { cursor: default; }
+
+/* Check-for-updates result strip under the toolbar. */
+.dps-check-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
+}
+.dps-check-text { color: var(--dsw-alias-label-secondary); }
+.dps-check-unknown { color: var(--dsw-alias-label-tertiary); }
+.dps-check-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+.dps-check-details li { overflow-wrap: anywhere; }
+
+/* Detail "source" section. */
+.dps-source {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dps-source-row {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0 10px;
+}
+.dps-source-key { color: var(--dsw-alias-label-tertiary); }
+.dps-source-value { overflow-wrap: anywhere; }
+.dps-check-line { color: var(--dsw-alias-state-business-primary); }
+.dps-force-confirm { border-color: var(--dsw-alias-state-warn-tertiary); }
 
 @media (prefers-reduced-motion: reduce) {
   .dps-root *,
@@ -1326,11 +1559,13 @@ window.__ModuleLoader__.load({
     }
 
     // Tier chips start "on": a root id missing from `tiers` is visible, so
-    // only an explicit `false` hides a tier.
+    // only an explicit `false` hides a tier. The source row is exclusive: a
+    // set `source` narrows the list to that repository bucket, `null` shows all.
     function defaultFilters() {
       return {
         query: '',
         tiers: {},
+        source: null,
         modelOff: false,
         userOff: false,
         shadowed: false,
@@ -1338,12 +1573,40 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // True when a filter hides individual rows (search text or a flag chip).
-    // A tier chip alone only hides whole tiers, so empty tiers stay visible with
-    // their one-line hint instead of vanishing.
+    const LOCAL_SOURCE_KEY = '__local__'
+
+    // Every row resolves to exactly one source bucket: its upstream repository,
+    // or the local bucket for skills that were not installed by the CLI.
+    function sourceKeyOf(skill) {
+      if (skill === null || skill === undefined || typeof skill !== 'object') {
+        return LOCAL_SOURCE_KEY
+      }
+      if (skill.origin === 'local') return LOCAL_SOURCE_KEY
+      const upstream = skill.upstream
+      if (
+        upstream !== null &&
+        upstream !== undefined &&
+        typeof upstream === 'object' &&
+        typeof upstream.repo === 'string' &&
+        upstream.repo !== ''
+      ) {
+        return upstream.repo
+      }
+      return LOCAL_SOURCE_KEY
+    }
+
+    function sourceFilterActive(filters) {
+      if (filters === null || filters === undefined) return false
+      return typeof filters.source === 'string' && filters.source !== ''
+    }
+
+    // True when a filter hides individual rows (search text, a flag chip or a
+    // source chip). A tier chip alone only hides whole tiers, so empty tiers
+    // stay visible with their one-line hint instead of vanishing.
     function rowFilterActive(filters) {
       if (filters === null || filters === undefined) return false
       if (typeof filters.query === 'string' && filters.query.trim() !== '') return true
+      if (sourceFilterActive(filters)) return true
       return (
         filters.modelOff === true ||
         filters.userOff === true ||
@@ -1382,6 +1645,10 @@ window.__ModuleLoader__.load({
       if (filters === null || filters === undefined) return true
       const tiers = filters.tiers
       if (tiers !== null && tiers !== undefined && tiers[rootId] === false) return false
+      const sources = filters.source
+      if (typeof sources === 'string' && sources !== '' && sourceKeyOf(skill) !== sources) {
+        return false
+      }
       const query = typeof filters.query === 'string' ? filters.query.trim().toLowerCase() : ''
       if (query !== '') {
         const name = typeof skill.name === 'string' ? skill.name.toLowerCase() : ''
@@ -1457,6 +1724,14 @@ window.__ModuleLoader__.load({
       TOO_MANY_ITEMS: 'code.TOO_MANY_ITEMS',
       DELETE_FAILED: 'code.DELETE_FAILED',
       SOURCE_REMOVE_FAILED: 'error.sourceRemoveFailed',
+      LOCAL_CHANGES: 'code.LOCAL_CHANGES',
+      NOT_MANAGED: 'code.NOT_MANAGED',
+      BUSY: 'code.BUSY',
+      RATE_LIMITED: 'code.RATE_LIMITED',
+      UNSUPPORTED_SOURCE: 'code.UNSUPPORTED_SOURCE',
+      LOCK_INVALID: 'code.LOCK_INVALID',
+      LOCK_VERSION_UNSUPPORTED: 'code.LOCK_VERSION_UNSUPPORTED',
+      PACKAGE_TOO_LARGE: 'code.PACKAGE_TOO_LARGE',
     }
 
     // A batch result carries a structured code; prefer the localized copy and
@@ -1469,6 +1744,45 @@ window.__ModuleLoader__.load({
       }
       if (typeof fallback === 'string' && fallback !== '') return fallback
       return typeof code === 'string' ? code : ''
+    }
+
+    // Check results carry either a string or `{ code, message }` in `error`.
+    function failureReason(translate, failure) {
+      if (failure === null || failure === undefined) return ''
+      if (typeof failure === 'string') return failure
+      if (typeof failure !== 'object') return ''
+      return codeText(translate, failure.code, failure.message)
+    }
+
+    function shortRepo(repo) {
+      if (typeof repo !== 'string' || repo === '') return ''
+      const parts = repo.split('/')
+      return parts[parts.length - 1]
+    }
+
+    function shortHash(hash) {
+      if (typeof hash !== 'string') return ''
+      return hash.length > 10 ? hash.slice(0, 10) : hash
+    }
+
+    // Renders an ISO timestamp as a compact local date-time without depending
+    // on Intl locale plumbing inside the panel.
+    function formatWhen(value) {
+      if (typeof value !== 'string' || value === '') return ''
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return value
+      const pad = (number) => (number < 10 ? '0' + number : String(number))
+      return (
+        date.getFullYear() +
+        '-' +
+        pad(date.getMonth() + 1) +
+        '-' +
+        pad(date.getDate()) +
+        ' ' +
+        pad(date.getHours()) +
+        ':' +
+        pad(date.getMinutes())
+      )
     }
 
     /* ------------------------------------------------------------------ *
@@ -1626,6 +1940,12 @@ window.__ModuleLoader__.load({
         batch(payload, signal) {
           return call('batch', payload, signal)
         },
+        checkUpdates(payload, signal) {
+          return call('checkUpdates', payload !== undefined ? payload : {}, signal)
+        },
+        updateSkills(payload, signal) {
+          return call('updateSkills', payload, signal)
+        },
       }
     }
 
@@ -1699,12 +2019,16 @@ window.__ModuleLoader__.load({
       const busy = props.busy === true
       const active = filterActive(filters)
       const tiers = Array.isArray(props.tiers) ? props.tiers : []
+      const sources = Array.isArray(props.sources) ? props.sources : []
+      // Above four repositories the extra chips fold behind a "+N" chip.
+      const [showAllSources, setShowAllSources] = React.useState(false)
 
-      const chips = []
+      const tierChips = []
       for (const entry of tiers) {
         const rootId = entry.rootId
         const on = filters.tiers[rootId] !== false
-        chips.push(
+        const rank = entry.tier !== null && entry.tier !== undefined ? entry.tier.rank : ''
+        tierChips.push(
           h(
             'button',
             {
@@ -1722,11 +2046,12 @@ window.__ModuleLoader__.load({
                   tiers: { ...filters.tiers, [rootId]: !on },
                 }),
             },
-            rootLabel(t, { id: rootId }),
+            rootLabel(t, { id: rootId }) + (rank === '' ? '' : ' ' + String(rank)),
           ),
         )
       }
 
+      const flagChips = []
       const flags = [
         ['modelOff', 'filter.modelOff'],
         ['userOff', 'filter.userOff'],
@@ -1736,7 +2061,7 @@ window.__ModuleLoader__.load({
       for (const flag of flags) {
         const name = flag[0]
         const on = filters[name] === true
-        chips.push(
+        flagChips.push(
           h(
             'button',
             {
@@ -1754,35 +2079,109 @@ window.__ModuleLoader__.load({
         )
       }
 
-      return h(
-        'div',
-        { className: 'dps-filterbar' },
-        h('input', {
-          className: 'dps-search',
-          type: 'search',
-          value: props.queryValue,
-          placeholder: t('filter.search'),
-          'aria-label': t('filter.search'),
-          disabled: busy,
-          onChange: (event) => props.onQueryChange(event.target.value),
-        }),
+      const shownSources = showAllSources ? sources : sources.slice(0, 4)
+      const sourceChips = []
+      for (const source of shownSources) {
+        const key = source.key
+        const selected = typeof filters.source === 'string' && filters.source !== ''
+        const on = !selected || filters.source === key
+        sourceChips.push(
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-chip',
+              key: 'source-' + key,
+              'data-source': key,
+              'data-on': String(on),
+              title: typeof source.title === 'string' ? source.title : key,
+              disabled: busy,
+              'aria-pressed': String(on),
+              onClick: () =>
+                props.onFiltersChange({
+                  ...filters,
+                  source: filters.source === key ? null : key,
+                }),
+            },
+            source.label,
+          ),
+        )
+      }
+      if (!showAllSources && sources.length > 4) {
+        sourceChips.push(
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-chip dps-chip-more',
+              key: 'source-more',
+              'data-more': 'sources',
+              disabled: busy,
+              onClick: () => setShowAllSources(true),
+            },
+            tf(t, 'filter.source.more', { count: sources.length - 4 }),
+          ),
+        )
+      }
+
+      const row = (labelKey, groupLabel, children) =>
         h(
           'div',
-          { className: 'dps-chips', role: 'group', 'aria-label': t('filter.tier') },
-          chips,
-          active
-            ? h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dps-link dps-clear',
-                  disabled: busy,
-                  onClick: props.onClear,
-                },
-                t('filter.clear'),
-              )
-            : null,
+          { className: 'dps-filter-row' },
+          h('span', { className: 'dps-filter-label' }, t(labelKey)),
+          h('div', { className: 'dps-chips', role: 'group', 'aria-label': groupLabel }, children),
+        )
+
+      return h(
+        'div',
+        { className: 'dps-filterbar', 'data-open': String(props.open === true) },
+        h(
+          'div',
+          { className: 'dps-filter-head' },
+          h('input', {
+            className: 'dps-search',
+            type: 'search',
+            value: props.queryValue,
+            placeholder: t('filter.search'),
+            'aria-label': t('filter.search'),
+            disabled: busy,
+            onChange: (event) => props.onQueryChange(event.target.value),
+          }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-btn dps-filter-toggle',
+              'data-open': String(props.open === true),
+              'aria-expanded': String(props.open === true),
+              disabled: busy,
+              onClick: props.onToggleOpen,
+            },
+            active ? h('span', { className: 'dps-filter-dot', 'aria-hidden': 'true' }) : null,
+            t(props.open === true ? 'filter.hide' : 'filter.show'),
+          ),
         ),
+        props.open === true
+          ? h(
+              'div',
+              { className: 'dps-filter-panel' },
+              row('filter.group.tier', t('filter.tier'), tierChips),
+              row('filter.group.attr', t('filter.group.attr'), flagChips),
+              row('filter.group.source', t('filter.group.source'), sourceChips),
+            )
+          : null,
+        active
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'dps-link dps-clear',
+                disabled: busy,
+                onClick: props.onClear,
+              },
+              t('filter.clear'),
+            )
+          : null,
       )
     }
 
@@ -1795,12 +2194,13 @@ window.__ModuleLoader__.load({
       const count = entries.length
       const batch = props.batch
       const running = batch !== null && batch !== undefined && batch.running === true
+      const updating = props.updating === true
       const hasSummary =
         batch !== null &&
         batch !== undefined &&
         batch.summary !== null &&
         batch.summary !== undefined
-      const disabled = running || count === 0
+      const disabled = running || updating || count === 0
       const pending = props.pending
       const targets = Array.isArray(props.targets) ? props.targets : []
       const parts = []
@@ -1875,6 +2275,11 @@ window.__ModuleLoader__.load({
       if (running) {
         parts.push(
           h('div', { className: 'dps-busy', key: 'busy', role: 'status' }, t('batch.running')),
+        )
+      }
+      if (updating) {
+        parts.push(
+          h('div', { className: 'dps-busy', key: 'updating', role: 'status' }, t('batch.updating')),
         )
       }
 
@@ -1989,6 +2394,16 @@ window.__ModuleLoader__.load({
               'button',
               {
                 type: 'button',
+                className: 'dps-btn',
+                disabled: disabled,
+                onClick: props.onUpdate,
+              },
+              t('batch.update'),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
                 className: 'dps-btn dps-danger',
                 disabled: disabled,
                 onClick: props.onDelete,
@@ -2020,6 +2435,9 @@ window.__ModuleLoader__.load({
         global: false,
       })
       const [warningOpen, setWarningOpen] = React.useState(false)
+      // The filter chips are tall in a narrow sidebar, so they start folded
+      // behind the "筛选" button and only open when the user asks for them.
+      const [filterOpen, setFilterOpen] = React.useState(false)
 
       const active = filterActive(filters)
       const shown = filteredTiers(data, filters)
@@ -2044,32 +2462,89 @@ window.__ModuleLoader__.load({
           : null
       const total = counts !== null && typeof counts.total === 'number' ? counts.total : null
 
+      const checks = props.checks !== null && props.checks !== undefined ? props.checks : null
+      const checking = checks !== null && checks.checking === true
+      const checkResults = checks !== null && Array.isArray(checks.results) ? checks.results : []
+      const checkCounts =
+        checks !== null && checks.counts !== null && checks.counts !== undefined
+          ? checks.counts
+          : null
+      // Latest check verdict by skill name: rows only need "update available?".
+      const checkByName = {}
+      for (const result of checkResults) {
+        if (result !== null && typeof result === 'object' && typeof result.name === 'string') {
+          checkByName[result.name] = result
+        }
+      }
+      const checkIssues = checkResults.filter(
+        (result) =>
+          result !== null &&
+          typeof result === 'object' &&
+          (result.status === 'unknown' || result.status === 'failed' || result.error !== undefined),
+      )
+
+      // Source chips come from the lock files (list.upstreams) plus a local
+      // bucket for skills that no CLI installed.
+      const sourceChips = []
+      if (data !== null && data !== undefined) {
+        for (const upstream of Array.isArray(data.upstreams) ? data.upstreams : []) {
+          if (upstream === null || typeof upstream !== 'object') continue
+          if (typeof upstream.repo !== 'string' || upstream.repo === '') continue
+          sourceChips.push({
+            key: upstream.repo,
+            label: shortRepo(upstream.repo) || upstream.repo,
+            title: upstream.repo,
+            count: typeof upstream.count === 'number' ? upstream.count : 0,
+          })
+        }
+      }
+      sourceChips.push({
+        key: LOCAL_SOURCE_KEY,
+        label: t('badge.local'),
+        title: t('badge.local'),
+        count: 0,
+      })
+
       const toolbar = h(
         'div',
         { className: 'dps-toolbar' },
         h('span', { className: 'dps-title' }, t('list.title')),
-        h('span', { className: 'dps-spacer' }),
         h(
-          'button',
-          {
-            type: 'button',
-            // Selection mode is a state, not the page's primary action: the
-            // filled button belongs to "new skill" only.
-            className: 'dps-btn',
-            disabled: loading || busy || data === null || total === 0,
-            onClick: props.onToggleSelecting,
-          },
-          selecting ? t('list.selectExit') : t('list.select'),
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dps-btn',
-            disabled: loading || busy,
-            onClick: props.onRefresh,
-          },
-          loading ? t('status.loading') : t('list.refresh'),
+          'div',
+          { className: 'dps-tools' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-btn',
+              'data-action': 'check',
+              disabled: loading || busy || checking || data === null || total === 0,
+              onClick: props.onCheck,
+            },
+            checking ? t('check.running') : t('check.button'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              // Selection mode is a state, not the page's primary action: the
+              // filled button belongs to "new skill" only.
+              className: 'dps-btn',
+              disabled: loading || busy || data === null || total === 0,
+              onClick: props.onToggleSelecting,
+            },
+            selecting ? t('list.selectExit') : t('list.select'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-btn',
+              disabled: loading || busy,
+              onClick: props.onRefresh,
+            },
+            loading ? t('status.loading') : t('list.refresh'),
+          ),
         ),
         h(
           'button',
@@ -2094,6 +2569,74 @@ window.__ModuleLoader__.load({
             onRetry: props.onRefresh,
           }),
         )
+      }
+
+      if (checks !== null) {
+        if (checks.error !== null && checks.error !== undefined) {
+          parts.push(
+            h(ErrorBar, {
+              key: 'check-error',
+              t: t,
+              error: checks.error,
+              onRetry: props.onCheck,
+              onDismiss: props.onDismissCheck,
+            }),
+          )
+        } else if (checkCounts !== null) {
+          const available =
+            typeof checkCounts.available === 'number' ? checkCounts.available : 0
+          const unknown = typeof checkCounts.unknown === 'number' ? checkCounts.unknown : 0
+          const strip = [
+            h(
+              'span',
+              { className: 'dps-check-text', key: 'text' },
+              available > 0
+                ? tf(t, 'check.available', { count: available })
+                : t('check.uptodate'),
+            ),
+            unknown > 0
+              ? h(
+                  'span',
+                  { className: 'dps-check-unknown', key: 'unknown' },
+                  tf(t, 'check.unknown', { count: unknown }),
+                )
+              : null,
+            h('span', { className: 'dps-spacer', key: 'spacer' }),
+            checkIssues.length > 0
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dps-link',
+                    key: 'details',
+                    onClick: props.onToggleCheckDetails,
+                  },
+                  checks.expanded === true ? t('check.collapse') : t('check.expand'),
+                )
+              : null,
+          ]
+          parts.push(
+            h('div', { className: 'dps-check-strip', key: 'check-strip', role: 'status' }, strip),
+          )
+          if (checks.expanded === true && checkIssues.length > 0) {
+            parts.push(
+              h(
+                'ul',
+                { className: 'dps-check-details', key: 'check-details' },
+                checkIssues.map((result, index) => {
+                  const reason = failureReason(t, result.error)
+                  return h(
+                    'li',
+                    { key: 'issue-' + String(index) },
+                    reason === ''
+                      ? result.name
+                      : tf(t, 'check.reason', { name: result.name, reason: reason }),
+                  )
+                }),
+              ),
+            )
+          }
+        }
       }
 
       if (data === null && loading) {
@@ -2172,11 +2715,14 @@ window.__ModuleLoader__.load({
               t: t,
               filters: filters,
               tiers: tierEntries,
+              sources: sourceChips,
               busy: loading || busy,
               queryValue: props.queryValue,
               onQueryChange: props.onQueryChange,
               onFiltersChange: props.onFiltersChange,
               onClear: props.onClearFilters,
+              open: filterOpen,
+              onToggleOpen: () => setFilterOpen((open) => !open),
             }),
           )
         }
@@ -2274,6 +2820,24 @@ window.__ModuleLoader__.load({
                           const rowRootId = skillRootId(skill, rootId)
                           const key = skillKey(skill, rowRootId)
                           const rowSelected = selecting && selection[key] === true
+                          const upstream =
+                            skill.upstream !== null && typeof skill.upstream === 'object'
+                              ? skill.upstream
+                              : null
+                          const managedRepo =
+                            upstream !== null &&
+                            typeof upstream.repo === 'string' &&
+                            upstream.repo !== ''
+                          const sourceLabel = managedRepo ? shortRepo(upstream.repo) : t('badge.local')
+                          const sourceTitle = managedRepo
+                            ? upstream.repo +
+                              (typeof upstream.skillPath === 'string' && upstream.skillPath !== ''
+                                ? ' \u00b7 ' + upstream.skillPath
+                                : '')
+                            : t('badge.local')
+                          const check = checkByName[skill.name]
+                          const updateAvailable =
+                            check !== undefined && check.status === 'update-available'
                           const activate = (event) => {
                             if (busy) return
                             if (selecting) {
@@ -2340,6 +2904,14 @@ window.__ModuleLoader__.load({
                                   { className: 'dps-name', title: skill.name },
                                   skill.name,
                                 ),
+                                h(
+                                  'span',
+                                  {
+                                    className: 'dps-badge dps-badge-source',
+                                    title: sourceTitle,
+                                  },
+                                  sourceLabel,
+                                ),
                                 skill.linked === true
                                   ? h(
                                       'span',
@@ -2352,6 +2924,18 @@ window.__ModuleLoader__.load({
                                       },
                                       t('badge.linked'),
                                     )
+                                  : null,
+                                updateAvailable
+                                  ? h('span', {
+                                      className: 'dps-update-dot',
+                                      title:
+                                        typeof check.upstreamHash === 'string' &&
+                                        check.upstreamHash !== ''
+                                          ? tf(t, 'badge.updateWithHash', {
+                                              hash: shortHash(check.upstreamHash),
+                                            })
+                                          : t('badge.update'),
+                                    })
                                   : null,
                                 h(
                                   'span',
@@ -2479,6 +3063,94 @@ window.__ModuleLoader__.load({
               ),
             )
           }
+
+          const missingRows = Array.isArray(data.missing) ? data.missing : []
+          if (missingRows.length > 0) {
+            parts.push(
+              h(
+                'section',
+                { className: 'dps-group dps-group-missing', key: 'missing' },
+                h(
+                  'div',
+                  { className: 'dps-group-head dps-missing-head' },
+                  h('span', { className: 'dps-group-title' }, t('missing.title')),
+                  h('span', { className: 'dps-count' }, String(missingRows.length)),
+                  h('span', { className: 'dps-spacer' }),
+                ),
+                h(
+                  'div',
+                  { className: 'dps-group-body' },
+                  h(
+                    'div',
+                    { className: 'dps-rows' },
+                    missingRows.map((item, index) => {
+                      const missing = item !== null && typeof item === 'object' ? item : {}
+                      const upstream =
+                        missing.upstream !== null && typeof missing.upstream === 'object'
+                          ? missing.upstream
+                          : null
+                      const repo =
+                        upstream !== null && typeof upstream.repo === 'string'
+                          ? upstream.repo
+                          : ''
+                      return h(
+                        'div',
+                        {
+                          className: 'dps-row dps-row-missing',
+                          key: 'missing-' + String(index),
+                          'data-missing': 'true',
+                        },
+                        h(
+                          'div',
+                          { className: 'dps-row-main' },
+                          h(
+                            'span',
+                            { className: 'dps-row-top' },
+                            h(
+                              'span',
+                              { className: 'dps-name', title: String(missing.name) },
+                              String(missing.name),
+                            ),
+                            repo === ''
+                              ? null
+                              : h(
+                                  'span',
+                                  {
+                                    className: 'dps-badge dps-badge-source',
+                                    title:
+                                      repo +
+                                      (upstream !== null &&
+                                      typeof upstream.skillPath === 'string' &&
+                                      upstream.skillPath !== ''
+                                        ? ' \u00b7 ' + upstream.skillPath
+                                        : ''),
+                                  },
+                                  shortRepo(repo),
+                                ),
+                          ),
+                          upstream !== null &&
+                          typeof upstream.skillPath === 'string' &&
+                          upstream.skillPath !== ''
+                            ? h('span', { className: 'dps-desc' }, upstream.skillPath)
+                            : null,
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'dps-btn',
+                            disabled: busy || props.updating === true,
+                            onClick: () => props.onInstall(item),
+                          },
+                          t('missing.install'),
+                        ),
+                      )
+                    }),
+                  ),
+                ),
+              ),
+            )
+          }
         }
       }
 
@@ -2491,9 +3163,11 @@ window.__ModuleLoader__.load({
             targets: props.targets,
             batch: batch,
             pending: props.pending,
+            updating: props.updating,
             onInvocation: props.onInvocation,
             onMove: props.onMove,
             onCopy: props.onCopy,
+            onUpdate: props.onUpdate,
             onDelete: props.onDelete,
             onConfirm: props.onConfirm,
             onCancelConfirm: props.onCancelConfirm,
@@ -2559,6 +3233,179 @@ window.__ModuleLoader__.load({
         detail !== null && detail !== undefined
           ? detail.userInvocable === true
           : skill.userInvocable === true
+
+      // Source metadata lives on the row and is re-read with the detail so a
+      // freshly updated skill shows its new hash without a list refresh.
+      const [forceConfirm, setForceConfirm] = React.useState(false)
+      const upstream =
+        detail !== null &&
+        detail !== undefined &&
+        detail.upstream !== null &&
+        detail.upstream !== undefined
+          ? detail.upstream
+          : skill.upstream !== null && skill.upstream !== undefined
+            ? skill.upstream
+            : null
+      const managed = upstream !== null && typeof upstream === 'object'
+      const upstreamRepo = managed && typeof upstream.repo === 'string' ? upstream.repo : ''
+      const upstreamPath = managed && typeof upstream.skillPath === 'string' ? upstream.skillPath : ''
+      const upstreamHash = managed && typeof upstream.hash === 'string' ? upstream.hash : ''
+      const installedAt = managed && typeof upstream.installedAt === 'string' ? upstream.installedAt : ''
+      const updatedAt = managed && typeof upstream.updatedAt === 'string' ? upstream.updatedAt : ''
+      const checkResult = props.checkResult
+      const checkStatus =
+        checkResult !== null && checkResult !== undefined ? checkResult.status : null
+      const checking = props.checking === true
+      const updating = props.updating === true
+      const updateFailure = props.updateError
+      const localChanges =
+        updateFailure !== null &&
+        updateFailure !== undefined &&
+        updateFailure.code === 'LOCAL_CHANGES'
+
+      const sourceRow = (key, label, value, mono) =>
+        h(
+          'div',
+          { className: 'dps-source-row', key: key },
+          h('span', { className: 'dps-source-key' }, label),
+          h(
+            'span',
+            {
+              className: mono ? 'dps-source-value dps-mono' : 'dps-source-value',
+              title: value,
+            },
+            value,
+          ),
+        )
+
+      const sourceRows = []
+      if (upstreamRepo !== '') sourceRows.push(sourceRow('repo', t('detail.sourceRepo'), upstreamRepo))
+      if (upstreamPath !== '') sourceRows.push(sourceRow('path', t('detail.sourcePath'), upstreamPath, true))
+      if (installedAt !== '')
+        sourceRows.push(sourceRow('installed', t('detail.sourceInstalled'), formatWhen(installedAt)))
+      if (updatedAt !== '')
+        sourceRows.push(sourceRow('updated', t('detail.sourceUpdated'), formatWhen(updatedAt)))
+      if (upstreamHash !== '')
+        sourceRows.push(sourceRow('hash', t('detail.sourceHash'), shortHash(upstreamHash), true))
+
+      let checkLine = null
+      if (checkStatus === 'update-available') {
+        checkLine = h('p', { className: 'dps-hint dps-check-line' }, t('detail.checkAvailable'))
+      } else if (checkStatus === 'up-to-date') {
+        checkLine = h('p', { className: 'dps-hint dps-check-line' }, t('detail.checkUptodate'))
+      } else if (checkStatus === 'unknown') {
+        checkLine = h(
+          'p',
+          { className: 'dps-hint dps-check-line' },
+          tf(t, 'detail.checkUnknown', {
+            reason: failureReason(t, checkResult.error) || t('check.reasonUnknown'),
+          }),
+        )
+      }
+
+      const sourceActions = []
+      if (managed) {
+        sourceActions.push(
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-btn',
+              key: 'check-skill',
+              disabled: checking || updating || busy || loading,
+              onClick: () => props.onCheckSkill(skill.name),
+            },
+            checking ? t('check.running') : t('detail.checkUpdate'),
+          ),
+        )
+        sourceActions.push(
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dps-btn dps-primary',
+              key: 'update-skill',
+              disabled: updating || checking || busy || loading,
+              onClick: () => {
+                setForceConfirm(false)
+                props.onUpdateSkill(skill)
+              },
+            },
+            updating ? t('detail.updating') : t('detail.update'),
+          ),
+        )
+      }
+
+      let updateBlock = null
+      if (localChanges) {
+        updateBlock = h(
+          'div',
+          { className: 'dps-confirm dps-force-confirm' },
+          h(
+            'p',
+            null,
+            forceConfirm
+              ? t('detail.forceConfirm')
+              : failureReason(t, updateFailure) || t('detail.updateFailed'),
+          ),
+          forceConfirm
+            ? h(
+                'div',
+                { className: 'dps-actions' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dps-btn dps-danger',
+                    disabled: updating,
+                    onClick: () => {
+                      setForceConfirm(false)
+                      props.onUpdateSkill(skill, true)
+                    },
+                  },
+                  t('detail.forceYes'),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dps-btn',
+                    disabled: updating,
+                    onClick: () => setForceConfirm(false),
+                  },
+                  t('detail.forceCancel'),
+                ),
+              )
+            : h(
+                'div',
+                { className: 'dps-actions' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dps-btn dps-danger',
+                    disabled: updating,
+                    onClick: () => setForceConfirm(true),
+                  },
+                  t('detail.forceYes'),
+                ),
+              ),
+        )
+      } else if (updateFailure !== null && updateFailure !== undefined) {
+        updateBlock = h(ErrorBar, { t: t, error: updateFailure, onDismiss: props.onDismissUpdate })
+      }
+
+      const sourceSection = h(
+        'div',
+        { className: 'dps-section' },
+        h('div', { className: 'dps-section-title' }, t('detail.source')),
+        managed
+          ? h('div', { className: 'dps-source' }, sourceRows)
+          : h('p', { className: 'dps-hint' }, t('detail.sourceLocal')),
+        managed ? checkLine : null,
+        managed ? h('div', { className: 'dps-actions' }, sourceActions) : null,
+        updateBlock,
+      )
 
       const toolbar = h(
         'div',
@@ -2669,6 +3516,7 @@ window.__ModuleLoader__.load({
           ? h('p', { className: 'dps-hint' }, tf(t, 'detail.mismatch', { path: path }))
           : null,
         toggles,
+        sourceSection,
         h(
           'div',
           { className: 'dps-section' },
@@ -2928,6 +3776,14 @@ window.__ModuleLoader__.load({
       const [pending, setPending] = React.useState(null)
       const [batch, setBatch] = React.useState(null)
 
+      // Update check: `checks` is null until a check runs. `updating` covers
+      // both the detail button and the selection action so every control can
+      // disable while a download is in flight. `updateError` belongs to the
+      // open detail only (LOCAL_CHANGES drives the force confirm).
+      const [checks, setChecks] = React.useState(null)
+      const [updating, setUpdating] = React.useState(false)
+      const [updateError, setUpdateError] = React.useState(null)
+
       React.useEffect(() => {
         aliveRef.current = true
         return () => {
@@ -3061,8 +3917,7 @@ window.__ModuleLoader__.load({
       // Every writable tier is a legal target. A row that already lives in the
       // target tier stays selectable: the item is still sent and the host
       // rejects it with INVALID_TARGET, so the client does not pre-filter.
-      const transferTargets = React.useMemo(() => {
-        const targets = []
+      const transferTargets = React.useMemo(() => {        const targets = []
         const tiers =
           listState.data !== null &&
           listState.data !== undefined &&
@@ -3077,6 +3932,22 @@ window.__ModuleLoader__.load({
         }
         return targets
       }, [listState.data, t])
+
+      // Check verdict by skill name, used by rows and by the open detail.
+      const checkByName = React.useMemo(() => {
+        const map = {}
+        if (checks === null || checks === undefined || !Array.isArray(checks.results)) return map
+        for (const result of checks.results) {
+          if (
+            result !== null &&
+            typeof result === 'object' &&
+            typeof result.name === 'string'
+          ) {
+            map[result.name] = result
+          }
+        }
+        return map
+      }, [checks])
 
       const exitSelection = React.useCallback(() => {
         // Never drop the panel while a batch is in flight: its result would be
@@ -3309,6 +4180,7 @@ window.__ModuleLoader__.load({
       const backToList = React.useCallback(() => {
         setPhase({ name: 'list' })
         setActionError(null)
+        setUpdateError(null)
         resetViews()
         loadList()
       }, [loadList])
@@ -3327,6 +4199,7 @@ window.__ModuleLoader__.load({
           setSelection({})
           setPending(null)
           setBatch(null)
+          setUpdateError(null)
           anchorRef.current = undefined
           setPhase({ name: 'detail', skill: skill })
           setDetailState({
@@ -3382,6 +4255,168 @@ window.__ModuleLoader__.load({
           }
         },
         [api, listState.data],
+      )
+
+      // ---- skills-CLI source: check updates / update -------------------
+
+      const runCheck = React.useCallback(
+        async (names) => {
+          const scoped = Array.isArray(names) ? names.filter((name) => typeof name === 'string') : []
+          setChecks((previous) =>
+            previous === null || previous === undefined
+              ? { checking: true, results: [], counts: null, error: null, expanded: false }
+              : { ...previous, checking: true, error: null },
+          )
+          try {
+            const payload = scoped.length > 0 ? { names: scoped } : {}
+            const result = await api.checkUpdates(payload, abortRef.current.signal)
+            if (!aliveRef.current) return
+            setChecks((previous) => ({
+              checking: false,
+              checkedAt: typeof result.checkedAt === 'string' ? result.checkedAt : null,
+              results: Array.isArray(result.results) ? result.results : [],
+              counts:
+                result.counts !== null && result.counts !== undefined ? result.counts : null,
+              error: null,
+              expanded:
+                previous !== null && previous !== undefined && previous.expanded === true,
+            }))
+          } catch (error) {
+            const failure = toFailure(error)
+            if (failure === null || !aliveRef.current) return
+            setChecks((previous) => {
+              const base =
+                previous === null || previous === undefined
+                  ? { checking: false, results: [], counts: null, expanded: false }
+                  : previous
+              return { ...base, checking: false, error: failure }
+            })
+          }
+        },
+        [api],
+      )
+
+      const toggleCheckDetails = React.useCallback(() => {
+        setChecks((previous) =>
+          previous === null || previous === undefined
+            ? previous
+            : { ...previous, expanded: previous.expanded !== true },
+        )
+      }, [])
+
+      const dismissCheck = React.useCallback(() => {
+        setChecks(null)
+      }, [])
+
+      // Shared by the detail button, the missing row and the selection bar.
+      // Returns the first result so a detail update can distinguish
+      // LOCAL_CHANGES (offer force) from a hard failure.
+      const updateItems = React.useCallback(
+        async (items, force) => {
+          if (!Array.isArray(items) || items.length === 0) return null
+          setUpdating(true)
+          setUpdateError(null)
+          try {
+            const payload = { items: items }
+            if (force === true) payload.force = true
+            const result = await api.updateSkills(payload, abortRef.current.signal)
+            if (!aliveRef.current) return null
+            const results = Array.isArray(result.results) ? result.results : []
+            await loadList()
+            setChecks(null)
+            return {
+              results: results,
+              counts:
+                result.counts !== null && result.counts !== undefined ? result.counts : null,
+            }
+          } catch (error) {
+            const failure = toFailure(error)
+            if (failure === null || !aliveRef.current) return null
+            setUpdateError(failure)
+            return null
+          } finally {
+            if (aliveRef.current) setUpdating(false)
+          }
+        },
+        [api, loadList],
+      )
+
+      const runUpdateSkill = React.useCallback(
+        async (skill, force) => {
+          if (phase.name !== 'detail' || detailState === null) return
+          const rootId = detailState.rootId
+          const outcome = await updateItems(
+            [{ name: skill.name, rootId: rootId }],
+            force === true,
+          )
+          if (outcome === null || !aliveRef.current) return
+          const first = outcome.results.length > 0 ? outcome.results[0] : null
+          if (first !== null && first.ok === true) {
+            setUpdateError(null)
+            // Re-read the row so the detail shows the new content and hash.
+            await openDetail({ ...skill, rootId: rootId })
+            return
+          }
+          if (first !== null && first.ok === false) {
+            setUpdateError(
+              new PanelError(
+                typeof first.code === 'string' ? first.code : 'UPDATE_FAILED',
+                typeof first.message === 'string' ? first.message : t('detail.updateFailed'),
+              ),
+            )
+          }
+        },
+        [detailState, openDetail, phase.name, t, updateItems],
+      )
+
+      const runUpdateSelected = React.useCallback(async () => {
+        const entries = selectedSkillEntries(listState.data, selection)
+        if (entries.length === 0) return
+        setActionError(null)
+        const items = entries.map((entry) => ({
+          name: entry.skill.name,
+          rootId: entry.rootId,
+        }))
+        setBatch(null)
+        const outcome = await updateItems(items, false)
+        if (outcome === null || !aliveRef.current) return
+        const counts = outcome.counts !== null && outcome.counts !== undefined ? outcome.counts : {}
+        const succeeded = typeof counts.ok === 'number' ? counts.ok : 0
+        const failed = typeof counts.failed === 'number' ? counts.failed : 0
+        setBatch({
+          running: false,
+          summary: { total: items.length, succeeded: succeeded, failed: failed },
+          results: outcome.results,
+          error: null,
+          expanded: failed > 0,
+        })
+        setSelection({})
+        anchorRef.current = undefined
+      }, [listState.data, selection, updateItems])
+
+      const installMissing = React.useCallback(
+        async (item) => {
+          const name =
+            item !== null && item !== undefined && typeof item.name === 'string'
+              ? item.name
+              : ''
+          if (name === '') return
+          setActionError(null)
+          const outcome = await updateItems([{ name: name }], false)
+          if (outcome === null || !aliveRef.current) return
+          const first = outcome.results.length > 0 ? outcome.results[0] : null
+          if (first !== null && first.ok === false) {
+            setActionError(
+              new PanelError(
+                typeof first.code === 'string' ? first.code : 'INSTALL_FAILED',
+                typeof first.message === 'string'
+                  ? first.message
+                  : t('missing.installFailed'),
+              ),
+            )
+          }
+        },
+        [t, updateItems],
       )
 
       const startEdit = React.useCallback(() => {
@@ -3631,10 +4666,17 @@ window.__ModuleLoader__.load({
           skill: phase.skill,
           detail: detailState,
           busy: busy,
+          checking: checks !== null && checks !== undefined && checks.checking === true,
+          updating: updating,
+          checkResult: checkByName[phase.skill.name],
+          updateError: updateError,
           onBack: backToList,
           onEdit: startEdit,
           onDelete: deleteSkill,
           onToggle: toggleField,
+          onCheckSkill: (name) => runCheck([name]),
+          onUpdateSkill: runUpdateSkill,
+          onDismissUpdate: () => setUpdateError(null),
         })
       } else {
         view = h(ListView, {
@@ -3649,10 +4691,17 @@ window.__ModuleLoader__.load({
           selection: selection,
           batch: batch,
           pending: pending,
+          updating: updating,
+          checks: checks,
           targets: transferTargets,
           onRefresh: loadList,
           onCreate: openCreate,
           onOpenSkill: openDetail,
+          onCheck: () => runCheck(),
+          onInstall: installMissing,
+          onUpdate: runUpdateSelected,
+          onToggleCheckDetails: toggleCheckDetails,
+          onDismissCheck: dismissCheck,
           onToggleSelecting: toggleSelecting,
           onQueryChange: changeQuery,
           onFiltersChange: changeFilters,

@@ -377,6 +377,22 @@ function skill(name, description, rootId, source, flags = {}) {
     ...(flags.shadowedBy === undefined ? {} : { shadowedBy: flags.shadowedBy }),
     linked: flags.linked === true,
     ...(flags.realPath === undefined ? {} : { realPath: flags.realPath }),
+    origin: flags.origin ?? 'local',
+    updatable: flags.updatable === true,
+    upstream: flags.upstream ?? null,
+  }
+}
+
+// A source-managed skill (installed by the skills CLI, tracked in a lock file).
+function managedUpstream(repo, skillPath) {
+  return {
+    repo,
+    type: 'github',
+    url: 'https://github.com/' + repo,
+    skillPath,
+    installedAt: '2026-10-01T08:00:00.000Z',
+    updatedAt: '2026-10-05T12:30:00.000Z',
+    hash: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
   }
 }
 
@@ -396,7 +412,11 @@ const LIST = {
       exists: true,
       writable: true,
       skills: [
-        skill('demo-skill', '用来验证右栏技能面板的演示技能，包含增删改查与调用开关。', 'project-dsh', 'project-dsh'),
+        skill('demo-skill', '用来验证右栏技能面板的演示技能，包含增删改查与调用开关。', 'project-dsh', 'project-dsh', {
+          origin: 'local',
+          updatable: false,
+          upstream: null,
+        }),
       ],
     },
     {
@@ -431,8 +451,16 @@ const LIST = {
           rank: 400,
           linked: true,
           realPath: 'C:\\Users\\honor\\.agents\\skills\\brainstorming\\SKILL.md',
+          origin: 'managed',
+          updatable: true,
+          upstream: managedUpstream('obra/superpowers', 'skills/brainstorming'),
         }),
-        skill('writing-plans', '把已批准的设计拆成可执行的实现计划，写入 docs/superpowers/plans。', 'global-dsh', 'user-dsh', { rank: 400 }),
+        skill('writing-plans', '把已批准的设计拆成可执行的实现计划，写入 docs/superpowers/plans。', 'global-dsh', 'user-dsh', {
+          rank: 400,
+          origin: 'managed',
+          updatable: true,
+          upstream: managedUpstream('obra/superpowers', 'skills/writing-plans'),
+        }),
         skill('impeccable', '设计、重做、审查、打磨前端界面时使用：层级、排版、动效与可访问性。', 'global-dsh', 'user-dsh', {
           rank: 400,
           modelInvocable: false,
@@ -467,6 +495,42 @@ const LIST = {
       rootId: 'project-dsh',
       path: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.dsh\\skills\\half-written\\SKILL.md',
       message: 'frontmatter 缺少 description 字段，该技能不会被 DSH 加载。',
+    },
+  ],
+  upstreams: [
+    { repo: 'obra/superpowers', count: 3 },
+    { repo: 'anthropics/skills', count: 2 },
+  ],
+  missing: [
+    {
+      name: 'docx',
+      upstream: {
+        repo: 'anthropics/skills',
+        type: 'github',
+        url: 'https://github.com/anthropics/skills',
+        skillPath: 'skills/docx',
+        hash: 'cccccccccccccccccccccccccccccccccccccccc',
+      },
+    },
+    {
+      name: 'pdfs',
+      upstream: {
+        repo: 'anthropics/skills',
+        type: 'github',
+        url: 'https://github.com/anthropics/skills',
+        skillPath: 'skills/pdfs',
+        hash: 'dddddddddddddddddddddddddddddddddddddddd',
+      },
+    },
+    {
+      name: 'webapp-testing',
+      upstream: {
+        repo: 'obra/superpowers',
+        type: 'github',
+        url: 'https://github.com/obra/superpowers',
+        skillPath: 'skills/webapp-testing',
+        hash: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      },
     },
   ],
 }
@@ -675,6 +739,40 @@ function respond(method, payload) {
       results,
     }
   }
+  if (method === 'checkUpdates') {
+    return {
+      ok: true,
+      checkedAt: '2026-11-04T09:00:00.000Z',
+      results: [
+        {
+          name: 'demo-skill',
+          status: 'update-available',
+          upstreamHash: 'f6e5d4c3b2a1908070605040302010f9e8d7c6b5',
+        },
+        { name: 'brainstorming', status: 'update-available', upstreamHash: 'f6e5d4c3b2a1908070605040302010f9e8d7c6b5' },
+        { name: 'writing-plans', status: 'up-to-date' },
+        {
+          name: 'office',
+          status: 'unknown',
+          error: { code: 'RATE_LIMITED', message: 'GitHub 接口限流，请稍后重试。' },
+        },
+      ],
+      counts: { available: 2, uptodate: 1, unknown: 1 },
+    }
+  }
+  if (method === 'updateSkills') {
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    return {
+      ok: true,
+      results: items.map((item) => ({
+        name: item.name,
+        rootId: item.rootId ?? null,
+        ok: true,
+        status: 'updated',
+      })),
+      counts: { ok: items.length, failed: 0 },
+    }
+  }
   if (method === 'roots') return { ok: true, roots: [] }
   return { ok: true }
 }
@@ -711,6 +809,13 @@ function clickButton(runtime, label) {
   click(runtime, (node) => node.kind === 'host' && node.type === 'button' && textOf(node) === label)
 }
 
+function openFilters(runtime) {
+  const toggle = findAll(runtime, (node) => hasClass(node, 'dps-filter-toggle'))[0]
+  if (toggle !== undefined && toggle.props['aria-expanded'] !== 'true') {
+    toggle.props.onClick({})
+  }
+}
+
 async function capture(state) {
   activeList = state === 'empty' ? emptyList() : LIST
   const { runtime, documentStub, env } = setup()
@@ -743,6 +848,8 @@ async function capture(state) {
     await runtime.settle()
   }
   if (state === 'list-filtered') {
+    openFilters(runtime)
+    await runtime.settle()
     typeInto(runtime, 'dps-search', 'demo')
     // The search box debounces by 120 ms.
     await new Promise((resolve) => setTimeout(resolve, 160))
@@ -761,6 +868,40 @@ async function capture(state) {
     await runtime.settle()
     click(runtime, (node) => hasClass(node, 'dps-row') && textOf(node).includes('release-notes'))
     await runtime.settle()
+  }
+  if (state === 'list-sources') {
+    // The update dots come from a check, then the source chips narrow the list
+    // down to one repository.
+    clickButton(runtime, t('check.button'))
+    await runtime.settle()
+    openFilters(runtime)
+    await runtime.settle()
+    click(
+      runtime,
+      (node) => hasClass(node, 'dps-chip') && node.props['data-source'] === 'obra/superpowers',
+    )
+    await runtime.settle()
+  }
+  if (state === 'check-result') {
+    clickButton(runtime, t('check.button'))
+    await runtime.settle()
+    const showReasons = findAll(
+      runtime,
+      (node) => node.kind === 'host' && node.type === 'button' && textOf(node) === t('check.expand'),
+    )[0]
+    if (showReasons !== undefined) {
+      showReasons.props.onClick({})
+      await runtime.settle()
+    }
+  }
+  if (state === 'detail-source') {
+    click(runtime, (node) => hasClass(node, 'dps-row') && textOf(node).includes('brainstorming'))
+    await runtime.settle()
+    clickButton(runtime, t('detail.checkUpdate'))
+    await runtime.settle()
+  }
+  if (state === 'list-missing') {
+    // The missing group is part of the default list payload; nothing to do.
   }
   if (state === 'batch-result') {
     clickButton(runtime, t('batch.delete'))
@@ -856,10 +997,14 @@ function page({ title, css, html, theme }) {
 const STATES = [
   ['list', '列表态'],
   ['list-filtered', '筛选后的列表'],
+  ['list-sources', '来源筛选'],
   ['list-selecting', '多选模式'],
   ['batch-result', '批量结果'],
   ['detail', '详情态'],
   ['detail-linked', '链接技能详情'],
+  ['detail-source', '来源详情'],
+  ['check-result', '检查更新结果'],
+  ['list-missing', '清单缺失'],
   ['edit', '编辑态'],
   ['create', '新建态'],
   ['empty', '空态'],

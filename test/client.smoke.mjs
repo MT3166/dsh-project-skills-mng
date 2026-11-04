@@ -569,6 +569,17 @@ function createHostStub() {
               modelInvocable: true,
               userInvocable: false,
               shadowed: false,
+              origin: 'managed',
+              updatable: true,
+              upstream: {
+                repo: 'obra/superpowers',
+                type: 'github',
+                url: 'https://github.com/obra/superpowers',
+                skillPath: 'skills/alpha-skill',
+                installedAt: '2026-10-01T08:00:00.000Z',
+                updatedAt: '2026-10-02T09:30:00.000Z',
+                hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
+              },
             },
             {
               name: 'beta-skill',
@@ -580,6 +591,9 @@ function createHostStub() {
               modelInvocable: true,
               userInvocable: true,
               shadowed: true,
+              origin: 'local',
+              updatable: false,
+              upstream: null,
               shadowedBy: {
                 rootId: 'project-dsh',
                 path: 'D:/proj/.dsh/skills/beta-skill/SKILL.md',
@@ -629,6 +643,11 @@ function createHostStub() {
           message: 'missing description',
         },
       ],
+      upstreams: [
+        { repo: 'obra/superpowers', count: 2 },
+        { repo: 'anthropics/skills', count: 1 },
+      ],
+      missing: [],
     },
   }
 
@@ -696,6 +715,35 @@ function createHostStub() {
           rootId: item.rootId,
           ok: true,
         })),
+      }
+    }
+    if (method === 'checkUpdates') {
+      return {
+        ok: true,
+        checkedAt: '2026-11-04T09:00:00.000Z',
+        results: [
+          {
+            name: 'alpha-skill',
+            status: 'update-available',
+            upstreamHash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2',
+          },
+          { name: 'beta-skill', status: 'up-to-date' },
+        ],
+        counts: { available: 1, uptodate: 1, unknown: 0 },
+      }
+    }
+    if (method === 'updateSkills') {
+      const items = Array.isArray(payload.items) ? payload.items : []
+      return {
+        ok: true,
+        results: items.map((item) => ({
+          name: item.name,
+          rootId: item.rootId,
+          ok: true,
+          status: 'updated',
+          backupPath: 'D:/proj/.dsh/skills/' + item.name + '.dsh-bak-1',
+        })),
+        counts: { ok: items.length, failed: 0 },
       }
     }
     return { ok: false, error: { code: 'NOT_FOUND', message: 'no stub for ' + method } }
@@ -1159,6 +1207,10 @@ const PARAM_TEMPLATES = {
   'batch.failure': '{name};{reason}',
   'shadowed.by': 'shadowed by {path}',
   'error.sourceRemoveFailed': 'source-remove-failed',
+  'check.available': '{count} updates available',
+  'check.unknown': '{count} unknown',
+  'check.reason': '{name}: {reason}',
+  'detail.checkUnknown': 'unverified: {reason}',
 }
 
 function parameterizedTranslate(key) {
@@ -1201,6 +1253,31 @@ function tierChip(runtime, rootId) {
   return chips[0]
 }
 
+// The filter chips live behind a "筛选" disclosure: opening it is one click on
+// the toggle in the search row, and every chip test starts from that state.
+async function openFilters(runtime) {
+  const toggle = findAllByClass(runtime, 'dps-filter-toggle')
+  assert.equal(toggle.length, 1, 'expected one filter toggle')
+  if (toggle[0].props['aria-expanded'] !== 'true') {
+    toggle[0].props.onClick()
+    await runtime.settle()
+  }
+}
+
+test('the filter chips start folded and open from the toolbar toggle', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  assert.equal(findAllByClass(runtime, 'dps-filter-panel').length, 0)
+  assert.equal(findAllByClass(runtime, 'dps-chip').length, 0)
+  assert.equal(findAllByClass(runtime, 'dps-filter-toggle')[0].props['aria-expanded'], 'false')
+
+  await openFilters(runtime)
+  assert.equal(findAllByClass(runtime, 'dps-filter-panel').length, 1)
+  assert.equal(findAllByClass(runtime, 'dps-filter-toggle')[0].props['aria-expanded'], 'true')
+  assert.equal(findAllByClass(runtime, 'dps-search').length, 1)
+})
+
 function rowCheckboxes(runtime) {
   return findAllByClass(runtime, 'dps-check')
 }
@@ -1216,6 +1293,7 @@ function selectedNames(runtime) {
 test('filters narrow the visible rows by query and tier', async () => {
   const host = createHostStub()
   const { runtime } = await mountPanel(host)
+  await openFilters(runtime)
 
   assert.deepEqual(visibleNames(runtime), ['alpha-skill', 'beta-skill'])
 
@@ -1231,6 +1309,7 @@ test('filters narrow the visible rows by query and tier', async () => {
 test('turning a tier chip off hides that tier and its count', async () => {
   const host = createHostStub()
   const { runtime } = await mountPanel(host)
+  await openFilters(runtime)
 
   assert.equal(findAllByClass(runtime, 'dps-group').length, 4)
 
@@ -1503,4 +1582,197 @@ test('a batch request failure becomes a panel error bar, not a crash', async () 
 
   assert.equal(includesText(runtime, 'TOO_MANY_ITEMS'), true)
   assert.equal(includesText(runtime, 'at most 100'), true)
+})
+
+/* ---------------------------------------------------------------------- *
+ * Source display, per-dimension filters, check/update (source feature)   *
+ * ---------------------------------------------------------------------- */
+
+function sourceChip(runtime, key) {
+  const chips = findAllByClass(runtime, 'dps-chip').filter(
+    (node) => node.props['data-source'] === key,
+  )
+  assert.equal(chips.length, 1, 'expected a source chip for ' + key)
+  return chips[0]
+}
+
+function cardTexts(runtime, className) {
+  return findAllByClass(runtime, className).map((node) => textOf(node))
+}
+
+test('the filter bar splits into tier, attribute and source rows', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+  await openFilters(runtime)
+
+  assert.equal(findAllByClass(runtime, 'dps-filter-row').length, 3)
+  assert.deepEqual(cardTexts(runtime, 'dps-filter-label'), [
+    'L:filter.group.tier',
+    'L:filter.group.attr',
+    'L:filter.group.source',
+  ])
+
+  // Tier chips carry the rank, source chips come from list.upstreams plus the
+  // local bucket, and only two repositories means no "+N" chip.
+  assert.equal(cardTexts(runtime, 'dps-chip').includes('L:root.project-dsh 100'), true)
+  assert.equal(sourceChip(runtime, 'obra/superpowers').children.length >= 0, true)
+  assert.equal(includesText(runtime, 'L:badge.local'), true)
+  assert.equal(findAllByClass(runtime, 'dps-chip-more').length, 0)
+})
+
+test('source chips narrow the rows down to that repository', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+  await openFilters(runtime)
+
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill', 'beta-skill'])
+
+  sourceChip(runtime, 'obra/superpowers').props.onClick()
+  await runtime.settle()
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill'])
+
+  sourceChip(runtime, '__local__').props.onClick()
+  await runtime.settle()
+  // The local bucket keeps only the skills no CLI installed.
+  assert.deepEqual(visibleNames(runtime), ['beta-skill'])
+
+  // Choosing the active source again clears the source filter.
+  sourceChip(runtime, '__local__').props.onClick()
+  await runtime.settle()
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill', 'beta-skill'])
+})
+
+test('rows show the source badge and mark skills with an available update', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  assert.deepEqual(cardTexts(runtime, 'dps-badge-source'), ['superpowers', 'L:badge.local'])
+  assert.equal(findAllByClass(runtime, 'dps-update-dot').length, 0)
+
+  findButton(runtime, 'L:check.button').props.onClick()
+  await runtime.settle()
+
+  assert.equal(findAllByClass(runtime, 'dps-update-dot').length, 1)
+  assert.equal(includesText(runtime, '1 updates available'), true)
+})
+
+test('the detail source section shows the upstream and updates the skill', async () => {
+  const host = createHostStub()
+  const { runtime, calls } = await mountPanel(host)
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+
+  assert.equal(includesText(runtime, 'L:detail.source'), true)
+  assert.equal(includesText(runtime, 'obra/superpowers'), true)
+  assert.equal(includesText(runtime, 'skills/alpha-skill'), true)
+  assert.equal(includesText(runtime, 'aaaaaaaaaa'), true)
+
+  findButton(runtime, 'L:detail.checkUpdate').props.onClick()
+  await runtime.settle()
+  const check = calls.filter((call) => call.method === 'checkUpdates').pop()
+  assert.deepEqual(check.body, { names: ['alpha-skill'], sessionId: 'session-1' })
+  assert.equal(includesText(runtime, 'L:detail.checkAvailable'), true)
+
+  findButton(runtime, 'L:detail.update').props.onClick()
+  await runtime.settle()
+  const update = calls.filter((call) => call.method === 'updateSkills').pop()
+  assert.deepEqual(update.body, {
+    items: [{ name: 'alpha-skill', rootId: 'project-dsh' }],
+    sessionId: 'session-1',
+  })
+})
+
+test('a LOCAL_CHANGES update failure offers a forced update', async () => {
+  const host = createHostStub()
+  const baseRespond = host.respond
+  let attemppts = 0
+  host.respond = (method, payload) => {
+    if (method === 'updateSkills' && attemppts === 0) {
+      attemppts += 1
+      return {
+        ok: false,
+        error: { code: 'LOCAL_CHANGES', message: 'local files differ' },
+      }
+    }
+    return baseRespond(method, payload)
+  }
+  const { runtime, calls } = await mountPanel(host)
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:detail.update').props.onClick()
+  await runtime.settle()
+
+  assert.equal(includesText(runtime, 'L:code.LOCAL_CHANGES'), true)
+  assert.equal(findAllByClass(runtime, 'dps-force-confirm').length, 1)
+
+  // The first "force" click only reveals the in-place confirmation, the second
+  // one sends the forced update.
+  findButton(runtime, 'L:detail.forceYes').props.onClick()
+  await runtime.settle()
+  assert.equal(includesText(runtime, 'L:detail.forceConfirm'), true)
+  findButton(runtime, 'L:detail.forceYes').props.onClick()
+  await runtime.settle()
+  const forced = calls.filter((call) => call.method === 'updateSkills').pop()
+  assert.deepEqual(forced.body, {
+    items: [{ name: 'alpha-skill', rootId: 'project-dsh' }],
+    sessionId: 'session-1',
+    force: true,
+  })
+})
+
+test('the missing group installs a skill listed only in the manifest', async () => {
+  const host = createHostStub()
+  host.list = {
+    ...host.list,
+    missing: [
+      {
+        name: 'docx',
+        upstream: {
+          repo: 'anthropics/skills',
+          type: 'github',
+          url: 'https://github.com/anthropics/skills',
+          skillPath: 'skills/docx',
+          hash: 'cccccccccccccccccccccccccccccccccccccccc',
+        },
+      },
+    ],
+  }
+  const { runtime, calls } = await mountPanel(host)
+
+  assert.equal(includesText(runtime, 'L:missing.title'), true)
+  assert.equal(findAllByClass(runtime, 'dps-row-missing').length, 1)
+
+  findAllByClass(runtime, 'dps-row-missing')[0]
+    .children.find((child) => child !== null && child.type === 'button')
+    .props.onClick()
+  await runtime.settle()
+
+  const update = calls.filter((call) => call.method === 'updateSkills').pop()
+  assert.deepEqual(update.body, { items: [{ name: 'docx' }], sessionId: 'session-1' })
+})
+
+test('updating the selection posts one updateSkills request', async () => {
+  const host = createHostStub()
+  const { runtime, calls } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  findAllByClass(runtime, 'dps-row')[1].props.onClick()
+  await runtime.settle()
+
+  findButton(runtime, 'L:batch.update').props.onClick()
+  await runtime.settle()
+
+  const update = calls.filter((call) => call.method === 'updateSkills').pop()
+  assert.deepEqual(update.body, {
+    items: [
+      { name: 'alpha-skill', rootId: 'project-dsh' },
+      { name: 'beta-skill', rootId: 'project-agents' },
+    ],
+    sessionId: 'session-1',
+  })
+  assert.equal(includesText(runtime, 'success=2 failed=0'), true)
 })
