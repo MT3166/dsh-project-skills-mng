@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { mkdtemp, mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises'
+import { symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -289,6 +290,77 @@ test('missing root reports a writable-by-parent root', async () => {
     assert.equal(root.exists, false)
     assert.equal(root.writable, true)
     assert.equal(response.body.cwd, projectDir)
+  })
+})
+
+/** Directory link, or false when the OS/user cannot create one. */
+async function makeDirLink(target, linkPath) {
+  try {
+    await symlink(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir')
+    return true
+  } catch (error) {
+    if (error.code === 'EPERM' || error.code === 'EACCES' || error.code === 'ENOTSUP') return false
+    throw error
+  }
+}
+
+test('a package linked into another skill root stays readable and editable', async (t) => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    const realDirectory = join(agentsHome, 'skills', 'mirrored-skill')
+    await mkdir(realDirectory, { recursive: true })
+    await writeFile(join(realDirectory, 'SKILL.md'), SKILL.replaceAll('demo-skill', 'mirrored-skill'))
+
+    const linkPath = join(projectDir, '.dsh', 'skills', 'mirrored-skill')
+    await mkdir(join(projectDir, '.dsh', 'skills'), { recursive: true })
+    if (!(await makeDirLink(realDirectory, linkPath))) {
+      t.skip('this OS/user cannot create directory links')
+      return
+    }
+
+    const list = await call('list', {})
+    const row = list.body.groups[0].skills.find((skill) => skill.name === 'mirrored-skill')
+    assert.equal(row.linked, true)
+    assert.equal(row.realPath.toLowerCase(), join(realDirectory, 'SKILL.md').toLowerCase())
+
+    const read = await call('read', { name: 'mirrored-skill', rootId: 'project-dsh' })
+    assert.equal(read.body.ok, true, JSON.stringify(read.body))
+    assert.equal(read.body.linked, true)
+    assert.match(read.body.content, /mirrored-skill/)
+
+    // Writes go to the real package, so the link keeps working.
+    const toggled = await call('toggle', { rootId: 'project-dsh', name: 'mirrored-skill', field: 'model', value: false })
+    assert.equal(toggled.body.ok, true, JSON.stringify(toggled.body))
+    assert.match(await readFile(join(realDirectory, 'SKILL.md'), 'utf8'), /disable-model-invocation: true/)
+
+    // Deleting removes the link, never the package it points at.
+    const deleted = await call('delete', { rootId: 'project-dsh', name: 'mirrored-skill' })
+    assert.equal(deleted.body.ok, true, JSON.stringify(deleted.body))
+    assert.equal(deleted.body.unlinked, true)
+    await assert.rejects(stat(linkPath))
+    assert.match(await readFile(join(realDirectory, 'SKILL.md'), 'utf8'), /name: mirrored-skill/)
+  })
+})
+
+test('a link pointing outside every skill root is still refused', async (t) => {
+  await withSandbox(async ({ call, projectDir }) => {
+    const outside = join(projectDir, 'outside', 'secret-skill')
+    await mkdir(outside, { recursive: true })
+    await writeFile(join(outside, 'SKILL.md'), SKILL.replaceAll('demo-skill', 'secret-skill'))
+    await mkdir(join(projectDir, '.dsh', 'skills'), { recursive: true })
+    const linkPath = join(projectDir, '.dsh', 'skills', 'secret-skill')
+    if (!(await makeDirLink(outside, linkPath))) {
+      t.skip('this OS/user cannot create directory links')
+      return
+    }
+
+    const read = await call('read', { name: 'secret-skill', rootId: 'project-dsh' })
+    assert.equal(read.body.ok, false)
+    assert.equal(read.body.error.code, 'PATH_ESCAPE')
+
+    const toggled = await call('toggle', { rootId: 'project-dsh', name: 'secret-skill', field: 'model', value: false })
+    assert.equal(toggled.body.ok, false)
+    assert.equal(toggled.body.error.code, 'PATH_ESCAPE')
+    assert.match(await readFile(join(outside, 'SKILL.md'), 'utf8'), /name: secret-skill/)
   })
 })
 

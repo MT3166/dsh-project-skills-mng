@@ -375,6 +375,8 @@ function skill(name, description, rootId, source, flags = {}) {
     userInvocable: flags.userInvocable ?? true,
     shadowed: flags.shadowed ?? false,
     ...(flags.shadowedBy === undefined ? {} : { shadowedBy: flags.shadowedBy }),
+    linked: flags.linked === true,
+    ...(flags.realPath === undefined ? {} : { realPath: flags.realPath }),
   }
 }
 
@@ -431,7 +433,11 @@ const LIST = {
         },
       ],
       skills: [
-        skill('brainstorming', '在任何创作之前先做需求澄清与方案发散，产出可批准的设计。', 'global-dsh', 'user-dsh', { rank: 400 }),
+        skill('brainstorming', '在任何创作之前先做需求澄清与方案发散，产出可批准的设计。', 'global-dsh', 'user-dsh', {
+          rank: 400,
+          linked: true,
+          realPath: 'C:\\Users\\honor\\.agents\\skills\\brainstorming\\SKILL.md',
+        }),
         skill('writing-plans', '把已批准的设计拆成可执行的实现计划，写入 docs/superpowers/plans。', 'global-dsh', 'user-dsh', { rank: 400 }),
         skill('impeccable', '设计、重做、审查、打磨前端界面时使用：层级、排版、动效与可访问性。', 'global-dsh', 'user-dsh', {
           rank: 400,
@@ -631,14 +637,19 @@ function setup() {
 function respond(method, payload) {
   if (method === 'list') return activeList
   if (method === 'read') {
+    const isLinked = payload.name === 'brainstorming'
     return {
       ok: true,
       name: payload.name,
-      path: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.dsh\\skills\\' + payload.name + '\\SKILL.md',
+      path: isLinked
+        ? 'C:\\Users\\honor\\.dsh\\skills\\brainstorming\\SKILL.md'
+        : 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.dsh\\skills\\' + payload.name + '\\SKILL.md',
       rootId: payload.rootId ?? 'project-dsh',
-      scope: 'project',
+      scope: isLinked ? 'global' : 'project',
       writable: true,
-      content: DETAIL_CONTENT,
+      linked: isLinked,
+      ...(isLinked ? { realPath: 'C:\\Users\\honor\\.agents\\skills\\brainstorming\\SKILL.md' } : {}),
+      content: DETAIL_CONTENT.replaceAll('demo-skill', payload.name),
     }
   }
   if (method === 'roots') return { ok: true, roots: [] }
@@ -684,6 +695,10 @@ async function capture(state) {
 
   if (state === 'detail' || state === 'edit') {
     click(runtime, (node) => hasClass(node, 'dps-row') && textOf(node).includes('demo-skill'))
+    await runtime.settle()
+  }
+  if (state === 'detail-linked') {
+    click(runtime, (node) => hasClass(node, 'dps-row') && textOf(node).includes('brainstorming'))
     await runtime.settle()
   }
   if (state === 'edit') {
@@ -774,6 +789,7 @@ function page({ title, css, html, theme }) {
 const STATES = [
   ['list', '列表态'],
   ['detail', '详情态'],
+  ['detail-linked', '链接技能详情'],
   ['edit', '编辑态'],
   ['create', '新建态'],
   ['empty', '空态'],

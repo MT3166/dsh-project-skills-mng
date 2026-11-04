@@ -1043,6 +1043,65 @@ test('a shadowed row in a writable root edits in place through its own rootId', 
   assert.equal(writeCall.body.rootId, 'global-agents')
 })
 
+test('a linked skill shows the link badge and reads through the link', async () => {
+  const host = createHostStub()
+  host.list.groups[1].skills.push({
+    name: 'linked-skill',
+    description: 'Mirrored from the agents home',
+    path: 'C:/Users/tester/.dsh/skills/linked-skill/SKILL.md',
+    rootId: 'global-dsh',
+    source: 'user-dsh',
+    rank: 400,
+    modelInvocable: true,
+    userInvocable: true,
+    shadowed: false,
+    linked: true,
+    realPath: 'C:/Users/tester/.agents/skills/linked-skill/SKILL.md',
+  })
+  const baseRespond = host.respond
+  host.respond = (method, payload) => {
+    if (method === 'read' && payload.name === 'linked-skill') {
+      return {
+        ok: true,
+        name: payload.name,
+        path: 'C:/Users/tester/.dsh/skills/linked-skill/SKILL.md',
+        rootId: 'global-dsh',
+        scope: 'global',
+        writable: true,
+        linked: true,
+        realPath: 'C:/Users/tester/.agents/skills/linked-skill/SKILL.md',
+        content: '---\nname: linked-skill\n---\n\n# linked-skill\n',
+      }
+    }
+    return baseRespond(method, payload)
+  }
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  // Rows: alpha, beta (project) then linked-skill (global).
+  const rows = findAllByClass(runtime, 'dps-row')
+  assert.equal(rows.length, 3)
+  assert.ok(textOf(rows[2]).includes('L:badge.linked'))
+  const badge = findAllByClass(runtime, 'dps-badge-link')
+  assert.equal(badge.length, 1)
+  assert.equal(badge[0].props.title, 'C:/Users/tester/.agents/skills/linked-skill/SKILL.md')
+
+  rows[2].props.onClick()
+  await runtime.settle()
+
+  const readCall = calls.find((call) => call.method === 'read')
+  assert.equal(readCall.body.name, 'linked-skill')
+  assert.equal(readCall.body.rootId, 'global-dsh')
+  // The detail view explains the link and offers to remove the link, not the file.
+  assert.equal(includesText(runtime, 'L:detail.linked'), true)
+  findButton(runtime, 'L:detail.delete').props.onClick()
+  await runtime.settle()
+  assert.equal(includesText(runtime, 'L:confirm.deleteLinked'), true)
+  assert.equal(findButton(runtime, 'L:confirm.unlinkYes') !== undefined, true)
+})
+
 test('host errors are shown in the panel instead of escaping the render', async () => {
   const { runtime, body } = setup({
     responder: (method) => {

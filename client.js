@@ -90,10 +90,14 @@ window.__ModuleLoader__.load({
       'detail.source': '来源',
       'detail.modelInvocable': '模型可调用',
       'detail.userInvocable': '用户可调用',
+      'detail.linked': '经由链接：{path}',
+      'badge.linked': '链接',
       'detail.mismatch':
         '同名技能存在于多个目录，当前正文来自 {path}；为避免写错文件，已禁用编辑。',
 
       'confirm.delete': '确认删除技能“{name}”？该操作会删除真实的 SKILL.md 文件，且无法撤销。',
+      'confirm.deleteLinked': '确认移除这个链接？{path} 里的技能文件会保留。',
+      'confirm.unlinkYes': '确认移除',
       'confirm.deleteYes': '确认删除',
       'confirm.cancel': '取消',
 
@@ -171,11 +175,15 @@ window.__ModuleLoader__.load({
       'detail.source': 'Source',
       'detail.modelInvocable': 'Model invocable',
       'detail.userInvocable': 'User invocable',
+      'detail.linked': 'Via link: {path}',
+      'badge.linked': 'link',
       'detail.mismatch':
         'A skill with the same name exists in another root; the body comes from {path}. Editing is disabled to avoid overwriting the wrong file.',
 
       'confirm.delete':
         'Delete skill "{name}"? This removes the real SKILL.md file and cannot be undone.',
+      'confirm.deleteLinked': 'Remove this link? The skill files in {path} are kept.',
+      'confirm.unlinkYes': 'Remove link',
       'confirm.deleteYes': 'Delete',
       'confirm.cancel': 'Cancel',
 
@@ -454,6 +462,11 @@ window.__ModuleLoader__.load({
   font-size: 10px;
   line-height: 14px;
   white-space: nowrap;
+}
+.dps-badge.dps-badge-link {
+  background: transparent;
+  border: 1px dashed var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-tertiary);
 }
 .dps-flags { display: inline-flex; gap: 4px; margin-left: auto; flex: none; }
 .dps-flag {
@@ -1455,6 +1468,17 @@ window.__ModuleLoader__.load({
                             typeof skill.source === 'string'
                               ? h('span', { className: 'dps-badge' }, skill.source)
                               : null,
+                            skill.linked === true
+                              ? h(
+                                  'span',
+                                  {
+                                    className: 'dps-badge dps-badge-link',
+                                    title:
+                                      typeof skill.realPath === 'string' ? skill.realPath : '',
+                                  },
+                                  t('badge.linked'),
+                                )
+                              : null,
                             h(
                               'span',
                               { className: 'dps-flags' },
@@ -1618,6 +1642,9 @@ window.__ModuleLoader__.load({
         typeof skill.source === 'string'
           ? h('span', { className: 'dps-badge' }, skill.source)
           : null,
+        skill.linked === true
+          ? h('span', { className: 'dps-badge dps-badge-link' }, t('badge.linked'))
+          : null,
         h('code', { className: 'dps-mono', title: path }, path),
         !writable && detail !== null && detail !== undefined
           ? h('span', { className: 'dps-hint' }, t('root.readonly'))
@@ -1680,6 +1707,9 @@ window.__ModuleLoader__.load({
         toolbar,
         h('h2', { className: 'dps-detail-name' }, skill.name),
         meta,
+        detail !== null && detail !== undefined && detail.linked === true && typeof detail.realPath === 'string'
+          ? h('p', { className: 'dps-hint' }, tf(t, 'detail.linked', { path: detail.realPath }))
+          : null,
         mismatch && path !== ''
           ? h('p', { className: 'dps-hint' }, tf(t, 'detail.mismatch', { path: path }))
           : null,
@@ -1694,7 +1724,15 @@ window.__ModuleLoader__.load({
           ? h(
               'div',
               { className: 'dps-confirm' },
-              h('p', null, tf(t, 'confirm.delete', { name: skill.name })),
+              h(
+                'p',
+                null,
+                detail !== null && detail !== undefined && detail.linked === true
+                  ? tf(t, 'confirm.deleteLinked', {
+                      path: typeof detail.realPath === 'string' ? detail.realPath : '',
+                    })
+                  : tf(t, 'confirm.delete', { name: skill.name }),
+              ),
               h(
                 'div',
                 { className: 'dps-actions' },
@@ -1709,7 +1747,9 @@ window.__ModuleLoader__.load({
                       props.onDelete()
                     },
                   },
-                  t('confirm.deleteYes'),
+                  detail !== null && detail !== undefined && detail.linked === true
+                    ? t('confirm.unlinkYes')
+                    : t('confirm.deleteYes'),
                 ),
                 h(
                   'button',
@@ -2022,6 +2062,8 @@ window.__ModuleLoader__.load({
             rootId: skill.rootId,
             readRootId: skill.rootId,
             writable: false,
+            linked: skill.linked === true,
+            realPath: typeof skill.realPath === 'string' ? skill.realPath : '',
             modelInvocable: skill.modelInvocable === true,
             userInvocable: skill.userInvocable === true,
             mismatch: false,
@@ -2043,6 +2085,13 @@ window.__ModuleLoader__.load({
               rootId: skill.rootId,
               readRootId: result.rootId,
               writable: mismatch ? rowWritable === true : result.writable === true,
+              linked: result.linked === true || skill.linked === true,
+              realPath:
+                typeof result.realPath === 'string'
+                  ? result.realPath
+                  : typeof skill.realPath === 'string'
+                    ? skill.realPath
+                    : '',
               modelInvocable: skill.modelInvocable === true,
               userInvocable: skill.userInvocable === true,
               mismatch: mismatch,

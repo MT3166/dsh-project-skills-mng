@@ -14,10 +14,10 @@
  *   global-agents   500  <AGENTS_HOME>/skills
  */
 
-import { readdir, readFile, mkdir, realpath, rename, rm, stat, unlink, writeFile, access } from 'node:fs/promises'
+import { readdir, readFile, lstat, mkdir, realpath, rename, rm, stat, unlink, writeFile, access } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 export const inject = ['webServer', 'connection']
 
@@ -387,6 +387,23 @@ async function scanRoot(root) {
   return { skills, errors }
 }
 
+/** Flag skills whose package/file resolves somewhere else than its lexical path
+ *  (an installed link), so the panel can say where the bytes really live. */
+async function annotateLinks(skills, roots) {
+  const byId = new Map(roots.map((root) => [root.id, root]))
+  for (const skill of skills) {
+    const root = byId.get(skill.rootId)
+    if (root === undefined) continue
+    const rootReal = await realpath(root.path).catch(() => undefined)
+    const real = await realpath(skill.path).catch(() => undefined)
+    if (rootReal === undefined || real === undefined) continue
+    const lexical = join(rootReal, relative(root.path, skill.path))
+    if (normalizeForCompare(lexical) === normalizeForCompare(real)) continue
+    skill.linked = true
+    skill.realPath = real
+  }
+}
+
 /** Mark the candidate that loses a name collision so the panel can explain shadowing. */
 function markShadowing(skills) {
   const byName = new Map()
@@ -428,36 +445,61 @@ async function locateSkillFile(rootPath, name) {
   return undefined
 }
 
-async function assertContained(rootPath, targetPath) {
+/** Real paths of the declared roots that exist. A skill package may legitimately
+ *  be a link into a sibling root (e.g. `~/.dsh/skills/x -> ~/.agents/skills/x`,
+ *  which is how mirrored global skill sets are installed). */
+async function knownRootReals(roots) {
+  const out = []
+  for (const root of roots) {
+    if (!root.exists) continue
+    const real = await realpath(root.path).catch(() => undefined)
+    if (real !== undefined) out.push(real)
+  }
+  return out
+}
+
+function isInside(parent, child) {
+  const outer = normalizeForCompare(parent)
+  const inner = normalizeForCompare(child)
+  return inner === outer || inner.startsWith(outer + sep)
+}
+
+/**
+ * Resolve a target and keep it inside its own root — or inside one of the other
+ * skill roots, so linked packages stay browsable/editable. Anything else is a
+ * path escape and is refused.
+ */
+async function resolveContained(rootPath, targetPath, allowedReals = []) {
   const rootReal = await realpath(rootPath)
   const targetReal = await realpath(targetPath)
-  const parent = normalizeForCompare(rootReal)
-  const child = normalizeForCompare(targetReal)
-  if (child !== parent && !child.startsWith(parent + sep)) {
-    throw new ApiError('PATH_ESCAPE', 'refusing to touch a path outside the skill root')
+  if (isInside(rootReal, targetReal)) return { realPath: targetReal, linked: false }
+  if (allowedReals.some((candidate) => isInside(candidate, targetReal))) {
+    return { realPath: targetReal, linked: true }
   }
-  return targetReal
+  throw new ApiError('PATH_ESCAPE', 'refusing to touch a path outside the skill roots')
 }
 
 function normalizeForCompare(path) {
   return process.platform === 'win32' ? path.toLowerCase() : path
 }
 
-async function ensureRootDirectory(root) {
+async function ensureRootDirectory(root, allowedReals = []) {
   if (!root.writable) throw new ApiError('ROOT_READ_ONLY', `skill root ${root.path} is not writable`)
   await mkdir(root.path, { recursive: true })
-  return assertContained(root.path, root.path)
+  return (await resolveContained(root.path, root.path, allowedReals)).realPath
 }
 
-async function writeSkillFile(root, name, content) {
-  const rootReal = await ensureRootDirectory(root)
+async function writeSkillFile(root, name, content, allowedReals = []) {
+  const rootReal = await ensureRootDirectory(root, allowedReals)
   const existing = await locateSkillFile(rootReal, name)
   // A flat `<name>.md` skill keeps its file in the root itself; only a missing
   // skill gets a fresh `<name>/` package directory.
   const directory = existing === undefined ? join(rootReal, name) : existing.directory ?? rootReal
   const filePath = existing?.filePath ?? join(directory, 'SKILL.md')
   if (existing === undefined) await mkdir(directory, { recursive: true })
-  const safeDirectory = await assertContained(rootReal, directory)
+  // A linked package keeps its files in the linked-to root; write there so the
+  // link is preserved instead of being replaced by a directory.
+  const safeDirectory = (await resolveContained(rootReal, directory, allowedReals)).realPath
   const target = join(safeDirectory, basename(filePath))
   const temporary = join(safeDirectory, `.${basename(filePath)}.${process.pid}.${Date.now()}.tmp`)
   await writeFile(temporary, content, 'utf8')
@@ -503,6 +545,7 @@ function createApi(ctx) {
         skills.push(...scanned.skills)
         errors.push(...scanned.errors)
       }
+      await annotateLinks(skills, roots)
       markShadowing(skills)
       const groups = ['project', 'global'].map((scope) => ({
         scope,
@@ -521,6 +564,8 @@ function createApi(ctx) {
             rank: skill.rank,
             modelInvocable: skill.modelInvocable,
             userInvocable: skill.userInvocable,
+            linked: skill.linked === true,
+            ...(skill.realPath === undefined ? {} : { realPath: skill.realPath }),
             shadowed: skill.shadowed,
             ...(skill.shadowedBy === undefined ? {} : { shadowedBy: skill.shadowedBy }),
             ...(skill.shadows.length === 0 ? {} : { shadows: skill.shadows }),
@@ -539,6 +584,7 @@ function createApi(ctx) {
     async read(payload) {
       const resolved = await session(payload)
       const roots = await describeRoots(resolved.projectRoot)
+      const allowed = await knownRootReals(roots)
       const name = validateSkillName(payload?.name)
       // A shadowed skill shares its name with a higher-ranked one. Callers that
       // already know the row they clicked pass `rootId` so the shadowed file
@@ -550,7 +596,7 @@ function createApi(ctx) {
         if (rootReal === undefined) continue
         const located = await locateSkillFile(rootReal, name)
         if (located === undefined) continue
-        await assertContained(rootReal, located.filePath)
+        const contained = await resolveContained(rootReal, located.filePath, allowed)
         const content = await readFile(located.filePath, 'utf8')
         const parsed = parseSkillDocument(content)
         if (parsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', `${located.filePath}: ${parsed.problem}`)
@@ -560,6 +606,8 @@ function createApi(ctx) {
           rootId: root.id,
           scope: root.scope,
           writable: root.writable,
+          linked: contained.linked,
+          ...(contained.linked ? { realPath: contained.realPath } : {}),
           content,
         }
       }
@@ -569,16 +617,18 @@ function createApi(ctx) {
     async write(payload) {
       const resolved = await session(payload)
       const roots = await describeRoots(resolved.projectRoot)
+      const allowed = await knownRootReals(roots)
       const root = findRoot(roots, payload?.rootId)
       const name = validateSkillName(payload?.name)
       const content = validateSkillContent(payload?.content, name)
-      const written = await writeSkillFile(root, name, content)
+      const written = await writeSkillFile(root, name, content, allowed)
       return { name, rootId: root.id, path: written.filePath, created: written.created }
     },
 
     async delete(payload) {
       const resolved = await session(payload)
       const roots = await describeRoots(resolved.projectRoot)
+      const allowed = await knownRootReals(roots)
       const root = findRoot(roots, payload?.rootId)
       const name = validateSkillName(payload?.name)
       if (!root.writable) throw new ApiError('ROOT_READ_ONLY', `skill root ${root.path} is not writable`)
@@ -586,15 +636,33 @@ function createApi(ctx) {
       if (rootReal === undefined) throw new ApiError('SKILL_NOT_FOUND', `skill root ${root.path} does not exist`)
       const located = await locateSkillFile(rootReal, name)
       if (located === undefined) throw new ApiError('SKILL_NOT_FOUND', `no skill named "${name}" in ${root.path}`)
-      const safe = await assertContained(rootReal, located.filePath)
-      if (located.directory === undefined) await unlink(safe)
-      else await rm(await realpath(located.directory), { recursive: true, force: true })
-      return { name, rootId: root.id, path: safe, deleted: true }
+      const contained = await resolveContained(rootReal, located.filePath, allowed)
+      if (located.directory === undefined) {
+        await unlink(contained.realPath)
+        return { name, rootId: root.id, path: contained.realPath, deleted: true }
+      }
+      const directoryInfo = await lstat(located.directory)
+      if (directoryInfo.isSymbolicLink()) {
+        // A linked package: remove the link only, the real package stays put.
+        await unlink(located.directory)
+        return {
+          name,
+          rootId: root.id,
+          path: located.directory,
+          deleted: true,
+          unlinked: true,
+          realPath: contained.realPath,
+        }
+      }
+      const directoryReal = (await resolveContained(rootReal, located.directory, allowed)).realPath
+      await rm(directoryReal, { recursive: true, force: true })
+      return { name, rootId: root.id, path: directoryReal, deleted: true }
     },
 
     async toggle(payload) {
       const resolved = await session(payload)
       const roots = await describeRoots(resolved.projectRoot)
+      const allowed = await knownRootReals(roots)
       const root = findRoot(roots, payload?.rootId)
       const name = validateSkillName(payload?.name)
       const field = payload?.field
@@ -606,11 +674,12 @@ function createApi(ctx) {
       if (rootReal === undefined) throw new ApiError('SKILL_NOT_FOUND', `skill root ${root.path} does not exist`)
       const located = await locateSkillFile(rootReal, name)
       if (located === undefined) throw new ApiError('SKILL_NOT_FOUND', `no skill named "${name}" in ${root.path}`)
-      await assertContained(rootReal, located.filePath)
+      const contained = await resolveContained(rootReal, located.filePath, allowed)
+      const filePath = contained.linked ? contained.realPath : located.filePath
 
-      const source = await readFile(located.filePath, 'utf8')
+      const source = await readFile(filePath, 'utf8')
       const parsed = parseSkillDocument(source)
-      if (parsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', `${located.filePath}: ${parsed.problem}`)
+      if (parsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', `${filePath}: ${parsed.problem}`)
 
       const match = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(source)
       const lines = match[1].split(/\r?\n/)
@@ -620,9 +689,9 @@ function createApi(ctx) {
         : (payload.value ? null : 'false')
       const nextLines = setFrontmatterField(lines, key, rawValue)
       const nextContent = renderSkillDocument(nextLines, source.slice(match[0].length))
-      const temporary = join(dirname(located.filePath), `.${basename(located.filePath)}.${process.pid}.${Date.now()}.tmp`)
+      const temporary = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.${Date.now()}.tmp`)
       await writeFile(temporary, nextContent, 'utf8')
-      await rename(temporary, located.filePath)
+      await rename(temporary, filePath)
 
       const reparsed = parseSkillDocument(nextContent)
       if (reparsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', reparsed.problem)
