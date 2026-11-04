@@ -14,10 +14,13 @@
  *   global-agents   500  <AGENTS_HOME>/skills
  */
 
-import { readdir, readFile, lstat, mkdir, realpath, rename, rm, stat, unlink, writeFile, access } from 'node:fs/promises'
+import { readdir, readFile, lstat, mkdir, mkdtemp, realpath, rename, rm, stat, unlink, writeFile, access } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
-import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 
 export const inject = ['webServer', 'connection']
 
@@ -597,10 +600,396 @@ async function removeSkillEntry(rootReal, name, allowedReals) {
 }
 
 /* ------------------------------------------------------------------ *
- * API operations
+ * Upstream sources (skills CLI lock file, GitHub, snapshot updates)
  * ------------------------------------------------------------------ */
 
-function createApi(ctx) {
+const LOCK_FILE = '.skill-lock.json'
+const PROJECT_LOCK_FILE = 'skills-lock.json'
+const STATE_FILE = '.skill-update-state.json'
+const GITHUB_API = 'https://api.github.com'
+const GITHUB_CODELOAD = 'https://codeload.github.com'
+/** Nested files that never count as an upstream change (they are generated). */
+const DRIFT_IGNORE_DIRS = new Set(['__pycache__'])
+const DRIFT_IGNORE_FILES = new Set(['.DS_Store', 'Thumbs.db'])
+const DRIFT_IGNORE_SUFFIXES = ['.pyc', '.log']
+const HASHED_SKILL_LIMIT = 40 * 1024 * 1024
+const ROOT_SKILL_LIMIT = 128 * 1024 * 1024
+const DOWNLOAD_LIMIT = 64 * 1024 * 1024
+const UPDATE_CACHE_TTL = 5 * 60 * 1000
+const BACKUP_KEEP = 2
+
+function globalLockPath() {
+  const stateHome = typeof process.env.XDG_STATE_HOME === 'string' ? process.env.XDG_STATE_HOME.trim() : ''
+  if (stateHome !== '') return join(stateHome, 'skills', LOCK_FILE)
+  return join(agentsHome(), LOCK_FILE)
+}
+
+function projectLockPath(projectRoot) {
+  return join(projectRoot, PROJECT_LOCK_FILE)
+}
+
+function ignoredDriftPath(segments, name) {
+  if (segments.some((segment) => DRIFT_IGNORE_DIRS.has(segment))) return true
+  if (DRIFT_IGNORE_FILES.has(name)) return true
+  const lower = name.toLowerCase()
+  return DRIFT_IGNORE_SUFFIXES.some((suffix) => lower.endsWith(suffix))
+}
+
+/** Parse one lock file without ever throwing: a broken lock is a warning, not a crash. */
+async function readJsonDocument(filePath) {
+  let raw
+  try {
+    raw = await readFile(filePath, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { missing: true }
+    return { problem: `cannot read ${filePath}: ${errorMessage(error)}` }
+  }
+  try {
+    const value = JSON.parse(raw)
+    if (value === null || typeof value !== 'object') return { problem: `${filePath} is not a JSON object` }
+    return { value }
+  } catch (error) {
+    return { problem: `${filePath} is not valid JSON: ${errorMessage(error)}` }
+  }
+}
+
+/** `owner/repo`, `https://github.com/owner/repo(.git)`, `git@github.com:owner/repo.git`. */
+function parseRepo(entry) {
+  const sourceUrl = typeof entry.sourceUrl === 'string' ? entry.sourceUrl : ''
+  const source = typeof entry.source === 'string' ? entry.source : ''
+  const candidates = [sourceUrl, source].filter((value) => value !== '')
+  for (const candidate of candidates) {
+    const ssh = /^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/.exec(candidate)
+    if (ssh !== null) return { repo: `${ssh[1]}/${ssh[2]}`, type: 'git' }
+    const https = /^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(candidate)
+    if (https !== null) return { repo: `${https[1]}/${https[2]}`, type: 'github' }
+    const bare = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(candidate)
+    if (bare !== null) return { repo: `${bare[1]}/${bare[2]}`, type: 'github' }
+  }
+  return undefined
+}
+
+function normalizeLockEntries(raw, scope) {
+  const entries = new Map()
+  const skills = raw?.skills
+  if (skills === null || typeof skills !== 'object') return entries
+  for (const [name, value] of Object.entries(skills)) {
+    if (value === null || typeof value !== 'object') continue
+    const hash = typeof value.skillFolderHash === 'string' ? value.skillFolderHash : typeof value.computedHash === 'string' ? value.computedHash : ''
+    entries.set(name, {
+      name,
+      scope,
+      source: typeof value.source === 'string' ? value.source : '',
+      sourceType: typeof value.sourceType === 'string' ? value.sourceType : '',
+      sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : '',
+      skillPath: typeof value.skillPath === 'string' ? value.skillPath : '',
+      hash,
+      installedAt: typeof value.installedAt === 'string' ? value.installedAt : undefined,
+      updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined,
+      ref: typeof value.ref === 'string' ? value.ref : undefined,
+    })
+  }
+  return entries
+}
+
+/** Read both lock files. Global v3 is authoritative for updates; project v1 is read-only. */
+async function readLocks(projectRoot) {
+  const warnings = []
+  const globalPath = globalLockPath()
+  const globalRaw = await readJsonDocument(globalPath)
+  let global = null
+  if (globalRaw.value !== undefined) {
+    const version = globalRaw.value.version
+    if (version === 3) {
+      global = { path: globalPath, exists: true, version, entries: normalizeLockEntries(globalRaw.value, 'global') }
+    } else {
+      warnings.push({ code: 'LOCK_VERSION_UNSUPPORTED', message: `${globalPath} has version ${String(version)}; expected 3` })
+    }
+  } else if (globalRaw.missing !== true) {
+    warnings.push({ code: 'LOCK_INVALID', message: globalRaw.problem })
+  }
+
+  const projectPath = projectLockPath(projectRoot)
+  const projectRaw = await readJsonDocument(projectPath)
+  let project = null
+  if (projectRaw.value !== undefined) {
+    const version = projectRaw.value.version
+    if (version === 1) {
+      project = { path: projectPath, exists: true, version, entries: normalizeLockEntries(projectRaw.value, 'project') }
+    } else {
+      warnings.push({ code: 'LOCK_VERSION_UNSUPPORTED', message: `${projectPath} has version ${String(version)}; expected 1` })
+    }
+  } else if (projectRaw.missing !== true) {
+    warnings.push({ code: 'LOCK_INVALID', message: projectRaw.problem })
+  }
+  return { global, project, warnings }
+}
+
+function upstreamOf(entry) {
+  const parsed = parseRepo(entry)
+  if (parsed === undefined) return null
+  return {
+    repo: parsed.repo,
+    type: parsed.type,
+    url: entry.sourceUrl !== '' ? entry.sourceUrl : `https://github.com/${parsed.repo}`,
+    skillPath: entry.skillPath,
+    installedAt: entry.installedAt,
+    updatedAt: entry.updatedAt,
+    hash: entry.hash,
+    ...(entry.ref === undefined ? {} : { ref: entry.ref }),
+    scope: entry.scope,
+  }
+}
+
+/** Collapse the 400 link row and its 500 twin: one physical package, one row. */
+async function mergeMirroredSkills(skills) {
+  const ordered = [...skills].sort((left, right) => left.rank - right.rank || left.path.localeCompare(right.path))
+  const seen = new Set()
+  const kept = []
+  for (const skill of ordered) {
+    const real = skill.realPath ?? (await realpath(skill.path).catch(() => undefined))
+    const key = real === undefined ? `path:${normalizeForCompare(skill.path)}` : `real:${normalizeForCompare(real)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    kept.push(skill)
+  }
+  return kept
+}
+
+/** Hash a skill folder the way the skills CLI does (sorted relative paths + bytes). */
+async function computeFolderHash(directory) {
+  const files = []
+
+  async function walk(base, current, segments) {
+    let dirents
+    try {
+      dirents = await readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const dirent of dirents) {
+      if (dirent.name === '.git' || dirent.name === 'node_modules') continue
+      if (ignoredDriftPath(segments, dirent.name)) continue
+      const full = join(current, dirent.name)
+      const nextSegments = [...segments, dirent.name]
+      if (dirent.isDirectory()) {
+        await walk(base, full, nextSegments)
+        continue
+      }
+      if (!dirent.isFile()) continue
+      files.push({ key: nextSegments.join('/'), full })
+    }
+  }
+
+  await walk(directory, directory, [])
+  files.sort((left, right) => left.key.localeCompare(right.key))
+  const hash = createHash('sha256')
+  for (const file of files) {
+    hash.update(file.key)
+    hash.update(await readFile(file.full))
+  }
+  return hash.digest('hex')
+}
+
+/** Minimal tar reader: ustar + pax `path` overrides; every other member type is skipped. */
+function parseTar(buffer) {
+  const entries = []
+  let offset = 0
+  let pendingPath
+  while (offset + 512 <= buffer.length) {
+    const header = buffer.subarray(offset, offset + 512)
+    let empty = true
+    for (const byte of header) {
+      if (byte !== 0) {
+        empty = false
+        break
+      }
+    }
+    if (empty) break
+    const readString = (start, length) => {
+      const slice = header.subarray(start, start + length)
+      const end = slice.indexOf(0)
+      return slice.subarray(0, end === -1 ? slice.length : end).toString('utf8')
+    }
+    const name = readString(0, 100)
+    const prefix = readString(345, 155)
+    const sizeText = readString(124, 12).trim()
+    const flag = String.fromCharCode(header[156] || 48)
+    let size = 0
+    if (sizeText !== '') {
+      size = parseInt(sizeText, 8)
+      if (Number.isNaN(size)) size = 0
+    }
+    const bodyStart = offset + 512
+    const bodyEnd = Math.min(bodyStart + size, buffer.length)
+    const body = buffer.subarray(bodyStart, bodyEnd)
+    const full = prefix === '' ? name : `${prefix}/${name}`
+    offset = bodyStart + Math.ceil(size / 512) * 512
+
+    if (flag === 'x' || flag === 'X') {
+      const overrides = parsePax(body)
+      if (typeof overrides.path === 'string') pendingPath = overrides.path
+      continue
+    }
+    if (flag === 'g' || flag === 'L' || flag === 'K') continue
+    const finalName = pendingPath ?? full
+    pendingPath = undefined
+    if (flag === '0' || flag === '\u0000' || flag === '') {
+      entries.push({ type: 'file', name: finalName, data: body })
+    }
+  }
+  return entries
+}
+
+function parsePax(body) {
+  const result = {}
+  const text = body.toString('utf8')
+  let offset = 0
+  while (offset < text.length) {
+    const space = text.indexOf(' ', offset)
+    if (space === -1) break
+    const length = parseInt(text.slice(offset, space), 10)
+    if (!Number.isFinite(length) || length <= 0) break
+    const record = text.slice(space + 1, offset + length - 1)
+    const equals = record.indexOf('=')
+    if (equals > 0) result[record.slice(0, equals)] = record.slice(equals + 1)
+    offset += length
+  }
+  return result
+}
+
+async function fetchBuffer(fetchImpl, url, headers) {
+  const response = await fetchImpl(url, { headers, redirect: 'follow' })
+  if (response === undefined || response === null) throw new ApiError('UPSTREAM_ERROR', `no response for ${url}`)
+  if (response.status === 403 || response.status === 429) {
+    throw new ApiError('RATE_LIMITED', 'GitHub rate limit reached; set GITHUB_TOKEN to raise it')
+  }
+  if (response.ok !== true) throw new ApiError('UPSTREAM_ERROR', `${url} answered ${String(response.status)}`)
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (buffer.length > DOWNLOAD_LIMIT) {
+    throw new ApiError('PACKAGE_TOO_LARGE', `download exceeds ${Math.round(DOWNLOAD_LIMIT / 1024 / 1024)} MiB`)
+  }
+  return buffer
+}
+
+function githubHeaders() {
+  const token = (process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? '').trim()
+  const headers = { accept: 'application/vnd.github+json', 'user-agent': 'dsh-project-skills-mng' }
+  if (token !== '') headers.authorization = `Bearer ${token}`
+  return headers
+}
+
+async function githubJson(fetchImpl, pathname) {
+  const response = await fetchImpl(`${GITHUB_API}${pathname}`, { headers: githubHeaders(), redirect: 'follow' })
+  if (response === undefined || response === null) throw new ApiError('UPSTREAM_ERROR', `no response for ${pathname}`)
+  if (response.status === 403 || response.status === 429) {
+    throw new ApiError('RATE_LIMITED', 'GitHub rate limit reached; set GITHUB_TOKEN to raise it')
+  }
+  if (response.ok !== true) throw new ApiError('UPSTREAM_ERROR', `${pathname} answered ${String(response.status)}`)
+  return response.json()
+}
+
+/** Directory inside the repo that holds the skill ('' for a repository-root skill). */
+function skillFolderOf(entry) {
+  const skillPath = typeof entry.skillPath === 'string' ? entry.skillPath.replace(/\\/g, '/') : ''
+  if (skillPath === '') return ''
+  if (skillPath === 'SKILL.md') return ''
+  return skillPath.endsWith('/SKILL.md') ? skillPath.slice(0, -'/SKILL.md'.length) : skillPath
+}
+
+async function downloadRepoArchive(fetchImpl, entry) {
+  const parsed = parseRepo(entry)
+  if (parsed === undefined) throw new ApiError('UNSUPPORTED_SOURCE', `cannot resolve a repository for "${entry.name}"`)
+  const ref = entry.ref === undefined ? '' : entry.ref
+  const suffix = ref === '' ? '' : `/${encodeURIComponent(ref)}`
+  const url = `${GITHUB_CODELOAD}/${parsed.repo}/tar.gz${suffix}`
+  const buffer = await fetchBuffer(fetchImpl, url, githubHeaders())
+  return parseTar(gunzipSync(buffer))
+}
+
+function cloneRepo(gitImpl, entry, destination) {
+  const parsed = parseRepo(entry)
+  if (parsed === undefined) throw new ApiError('UNSUPPORTED_SOURCE', `cannot resolve a repository for "${entry.name}"`)
+  const args = ['clone', '--depth', '1']
+  if (entry.ref !== undefined) args.push('--branch', entry.ref)
+  args.push(parsed.type === 'git' ? entry.sourceUrl || `git@github.com:${parsed.repo}.git` : `https://github.com/${parsed.repo}.git`, destination)
+  return gitImpl(args, destination)
+}
+
+async function writeExtractedFiles(entries, skillFolder, destination, limit) {
+  let written = 0
+  for (const entry of entries) {
+    const parts = entry.name.split('/')
+    // The tar root is "<repo>-<ref>/"; drop it before matching the skill folder.
+    const relativeParts = parts.slice(1)
+    if (relativeParts.length === 0) continue
+    if (skillFolder !== '') {
+      const folderParts = skillFolder.split('/')
+      if (relativeParts.length <= folderParts.length) continue
+      if (folderParts.some((part, index) => relativeParts[index] !== part)) continue
+      relativeParts.splice(0, folderParts.length)
+    }
+    if (relativeParts.includes('..')) throw new ApiError('PATH_ESCAPE', `refusing tar entry "${entry.name}"`)
+    const target = join(destination, ...relativeParts)
+    const comparison = normalizeForCompare(target)
+    const base = normalizeForCompare(destination)
+    if (comparison !== base && !comparison.startsWith(base + sep)) {
+      throw new ApiError('PATH_ESCAPE', `refusing tar entry "${entry.name}"`)
+    }
+    written += entry.data.length
+    if (written > limit) throw new ApiError('PACKAGE_TOO_LARGE', `extracted skill exceeds ${Math.round(limit / 1024 / 1024)} MiB`)
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, entry.data)
+  }
+}
+
+async function readUpdateState() {
+  const document = await readJsonDocument(join(agentsHome(), STATE_FILE))
+  if (document.value === undefined) return { version: 1, skills: {} }
+  const skills = document.value.skills !== null && typeof document.value.skills === 'object' ? document.value.skills : {}
+  return { ...document.value, version: 1, skills }
+}
+
+async function writeUpdateState(state) {
+  const path = join(agentsHome(), STATE_FILE)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+}
+
+async function writeLockDocument(lockPath, document) {
+  await writeFile(`${lockPath}.bak`, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
+  const tmp = `${lockPath}.tmp`
+  await writeFile(tmp, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
+  await rename(tmp, lockPath)
+}
+
+async function pruneBackups(rootDirectory, name) {
+  let dirents
+  try {
+    dirents = await readdir(rootDirectory, { withFileTypes: true })
+  } catch {
+    return
+  }
+  const prefix = `.dsh-bak-`
+  const backups = dirents
+    .filter((dirent) => dirent.name.startsWith(prefix) && dirent.name.includes(`-${name}-`))
+    .map((dirent) => dirent.name)
+    .sort()
+  while (backups.length > BACKUP_KEEP) {
+    const oldest = backups.shift()
+    if (oldest === undefined) break
+    await rm(join(rootDirectory, oldest), { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+function createApi(ctx, deps = {}) {
+  const fetchImpl = deps.fetchImpl ?? ((url, init) => fetch(url, init))
+  const gitImpl = deps.gitImpl ?? ((args) => new Promise((resolvePromise, rejectPromise) => {
+    execFile('git', args, { timeout: 60_000 }, (error, stdout) => {
+      if (error !== null && error !== undefined) rejectPromise(new ApiError('UPSTREAM_ERROR', `git ${args[0]} failed: ${errorMessage(error)}`))
+      else resolvePromise(stdout)
+    })
+  }))
   const session = (payload) => resolveSession(ctx, payload?.sessionId)
 
   const api = {
@@ -620,8 +1009,19 @@ function createApi(ctx) {
         errors.push(...scanned.errors)
       }
       await annotateLinks(skills, roots)
-      markShadowing(skills)
-      // One tier per declared root, ordered by DSH's own rank (100 → 500).
+      const merged = await mergeMirroredSkills(skills)
+      markShadowing(merged)
+
+      const locks = await readLocks(resolved.projectRoot)
+      const entries = new Map()
+      if (locks.project !== null) for (const [name, entry] of locks.project.entries) entries.set(name, entry)
+      if (locks.global !== null) for (const [name, entry] of locks.global.entries) if (!entries.has(name)) entries.set(name, entry)
+
+      const describeUpstream = (name) => {
+        const entry = entries.get(name)
+        if (entry === undefined) return null
+        return upstreamOf(entry)
+      }
       // The panel mirrors the harness' discovery order instead of collapsing the
       // four roots into "project" and "global": a skill in a lower-ranked root is
       // shadowed by the same name in any higher-ranked root, project or global.
@@ -635,24 +1035,33 @@ function createApi(ctx) {
         path: root.path,
         exists: root.exists,
         writable: root.writable,
-        skills: skills
+        skills: merged
           .filter((skill) => skill.rootId === root.id)
-          .map((skill) => ({
-            name: skill.name,
-            description: skill.description,
-            ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
-            path: skill.path,
-            rootId: skill.rootId,
-            source: skill.source,
-            rank: skill.rank,
-            modelInvocable: skill.modelInvocable,
-            userInvocable: skill.userInvocable,
-            linked: skill.linked === true,
-            ...(skill.realPath === undefined ? {} : { realPath: skill.realPath }),
-            shadowed: skill.shadowed,
-            ...(skill.shadowedBy === undefined ? {} : { shadowedBy: skill.shadowedBy }),
-            ...(skill.shadows.length === 0 ? {} : { shadows: skill.shadows }),
-          })),
+          .map((skill) => {
+            const upstream = describeUpstream(skill.name)
+            const entry = entries.get(skill.name)
+            return {
+              name: skill.name,
+              description: skill.description,
+              ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
+              path: skill.path,
+              rootId: skill.rootId,
+              source: skill.source,
+              rank: skill.rank,
+              modelInvocable: skill.modelInvocable,
+              userInvocable: skill.userInvocable,
+              linked: skill.linked === true,
+              ...(skill.realPath === undefined ? {} : { realPath: skill.realPath }),
+              ...(upstream === null ? { origin: 'local', updatable: false, upstream: null } : {
+                origin: 'managed',
+                updatable: entry.scope === 'global',
+                upstream,
+              }),
+              shadowed: skill.shadowed,
+              ...(skill.shadowedBy === undefined ? {} : { shadowedBy: skill.shadowedBy }),
+              ...(skill.shadows.length === 0 ? {} : { shadows: skill.shadows }),
+            }
+          }),
       }))
       const counts = {
         project: tiers
@@ -661,11 +1070,45 @@ function createApi(ctx) {
         global: tiers
           .filter((tier) => tier.scope === 'global')
           .reduce((sum, tier) => sum + tier.skills.length, 0),
-        total: skills.length,
-        shadowed: skills.filter((skill) => skill.shadowed).length,
+        total: merged.length,
+        shadowed: merged.filter((skill) => skill.shadowed).length,
         broken: errors.length,
       }
-      return { cwd: resolved.cwd, projectRoot: resolved.projectRoot, counts, tiers, errors }
+      const present = new Set(merged.map((skill) => skill.name))
+      const missing = []
+      if (locks.global !== null) {
+        for (const [name, entry] of locks.global.entries) {
+          if (present.has(name)) continue
+          const upstream = upstreamOf(entry)
+          if (upstream === null) continue
+          missing.push({ name, upstream })
+        }
+      }
+      missing.sort((left, right) => left.name.localeCompare(right.name))
+      const repoCounts = new Map()
+      for (const tier of tiers) {
+        for (const skill of tier.skills) {
+          if (skill.upstream === null) continue
+          repoCounts.set(skill.upstream.repo, (repoCounts.get(skill.upstream.repo) ?? 0) + 1)
+        }
+      }
+      const upstreams = [...repoCounts.entries()]
+        .map(([repo, count]) => ({ repo, count }))
+        .sort((left, right) => right.count - left.count || left.repo.localeCompare(right.repo))
+      return {
+        cwd: resolved.cwd,
+        projectRoot: resolved.projectRoot,
+        counts,
+        tiers,
+        missing,
+        upstreams,
+        locks: {
+          global: locks.global === null ? null : { path: locks.global.path, exists: locks.global.exists, version: locks.global.version, count: locks.global.entries.size },
+          project: locks.project === null ? null : { path: locks.project.path, exists: locks.project.exists, version: locks.project.version, count: locks.project.entries.size },
+          warnings: locks.warnings,
+        },
+        errors,
+      }
     },
 
     async read(payload) {
@@ -978,6 +1421,250 @@ function createApi(ctx) {
     }
   }
 
+  const updateCache = new Map()
+
+  /** One GitHub round trip per repo per 5 minutes: default branch + recursive tree. */
+  async function repoSnapshot(repo, ref) {
+    const key = `${repo}@${ref ?? ''}`
+    const cached = updateCache.get(key)
+    const now = Date.now()
+    if (cached !== undefined && now - cached.at < UPDATE_CACHE_TTL) return cached.value
+    let branch = ref
+    if (branch === undefined) {
+      const info = await githubJson(fetchImpl, `/repos/${repo}`)
+      branch = typeof info.default_branch === 'string' ? info.default_branch : 'main'
+    }
+    const tree = await githubJson(fetchImpl, `/repos/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`)
+    const value = { branch, tree }
+    updateCache.set(key, { at: now, value })
+    return value
+  }
+
+  function treeShaFor(tree, folder) {
+    if (folder === '') return tree.sha
+    const nodes = Array.isArray(tree.tree) ? tree.tree : []
+    const node = nodes.find((candidate) => candidate.path === folder && candidate.type === 'tree')
+    return node?.sha
+  }
+
+  async function upstreamHashFor(entry, folder) {
+    const parsed = parseRepo(entry)
+    if (parsed === undefined) throw new ApiError('UNSUPPORTED_SOURCE', `cannot resolve a repository for "${entry.name}"`)
+    const isTreeHash = /^[0-9a-f]{40}$/i.test(entry.hash)
+    if (isTreeHash) {
+      const snapshot = await repoSnapshot(parsed.repo, entry.ref)
+      const sha = treeShaFor(snapshot.tree, folder)
+      if (sha === undefined) throw new ApiError('UPSTREAM_PATH_MISSING', `"${folder}" is not a tree in ${parsed.repo}`)
+      return { hash: sha, folder, parsed }
+    }
+    const entries = await downloadRepoArchive(fetchImpl, entry)
+    const temp = await mkdtemp(join(tmpdir(), 'dsh-skills-hash-'))
+    try {
+      await writeExtractedFiles(entries, folder, temp, HASHED_SKILL_LIMIT)
+      return { hash: await computeFolderHash(temp), folder, parsed }
+    } finally {
+      await rm(temp, { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
+  api.checkUpdates = async (payload) => {
+    const resolved = await session(payload)
+    const locks = await readLocks(resolved.projectRoot)
+    if (locks.global === null) throw new ApiError('LOCK_INVALID', 'the global skills lock is missing or unsupported')
+    const wanted = Array.isArray(payload?.names) ? new Set(payload.names.filter((name) => typeof name === 'string')) : null
+    const targets = [...locks.global.entries.values()].filter((entry) => wanted === null || wanted.has(entry.name))
+    const results = []
+    const byRepo = new Map()
+    for (const entry of targets) {
+      const parsed = parseRepo(entry)
+      if (parsed === undefined) {
+        results.push({ name: entry.name, status: 'unknown', error: { code: 'UNSUPPORTED_SOURCE', message: `cannot resolve a repository for "${entry.name}"` } })
+        continue
+      }
+      const key = `${parsed.repo}@${entry.ref ?? ''}`
+      const bucket = byRepo.get(key)
+      if (bucket === undefined) byRepo.set(key, { repo: parsed.repo, entries: [entry] })
+      else bucket.entries.push(entry)
+    }
+    for (const bucket of byRepo.values()) {
+      let failure
+      try {
+        const hashes = new Map()
+        for (const entry of bucket.entries) {
+          const folder = skillFolderOf(entry)
+          let value = hashes.get(folder)
+          if (value === undefined) {
+            value = await upstreamHashFor(entry, folder)
+            hashes.set(folder, value)
+          }
+          const same = String(value.hash).toLowerCase() === String(entry.hash).toLowerCase()
+          results.push({ name: entry.name, status: same ? 'up-to-date' : 'update-available', upstreamHash: value.hash })
+        }
+      } catch (error) {
+        failure = error instanceof ApiError
+          ? { code: error.code, message: error.message }
+          : { code: 'UPSTREAM_ERROR', message: errorMessage(error) }
+        for (const entry of bucket.entries) results.push({ name: entry.name, status: 'unknown', error: failure })
+      }
+    }
+    const counts = {
+      available: results.filter((result) => result.status === 'update-available').length,
+      uptodate: results.filter((result) => result.status === 'up-to-date').length,
+      unknown: results.filter((result) => result.status === 'unknown').length,
+    }
+    return { checkedAt: new Date().toISOString(), results, counts }
+  }
+
+  let updating = false
+
+  api.updateSkills = async (payload) => {
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    if (items.length === 0) throw new ApiError('INVALID_PAYLOAD', 'items must be a non-empty array')
+    if (items.length > BATCH_LIMIT) throw new ApiError('TOO_MANY_ITEMS', `at most ${BATCH_LIMIT} items can be updated at once`)
+    if (updating) throw new ApiError('BUSY', 'another update is already running')
+    updating = true
+    try {
+      const resolved = await session(payload)
+      const locks = await readLocks(resolved.projectRoot)
+      if (locks.global === null) throw new ApiError('LOCK_INVALID', 'the global skills lock is missing or unsupported')
+      const lockDocument = (await readJsonDocument(globalLockPath())).value
+      const agentsRoot = await ensureAgentsRoot()
+      const state = await readUpdateState()
+      const force = payload?.force === true
+      const handled = new Set()
+      const results = []
+      for (const raw of items) {
+        const item = raw ?? {}
+        const name = typeof item.name === 'string' ? item.name : ''
+        try {
+          validateSkillName(name)
+          const entry = locks.global.entries.get(name)
+          if (entry === undefined) throw new ApiError('NOT_MANAGED', `"${name}" is not installed by the skills CLI`)
+          const physical = join(agentsRoot, name)
+          const real = normalizeForCompare(physical)
+          if (handled.has(real)) {
+            results.push({ name, rootId: item.rootId, ok: true, status: 'skipped', message: 'already handled in this batch' })
+            continue
+          }
+          handled.add(real)
+          const outcome = await runUpdate({ entry, name, agentsRoot, physical, state, force })
+          if (outcome.lockHash !== undefined) {
+            const target = lockDocument?.skills?.[name]
+            if (target !== null && typeof target === 'object') {
+              // Keep the entry's hash format: a 40-hex entry stays a tree sha,
+              // everything else stays a sha256 of the folder contents.
+              target.skillFolderHash = outcome.lockHash
+              if (typeof target.computedHash === 'string') delete target.computedHash
+              target.updatedAt = new Date().toISOString()
+            }
+          }
+          results.push({ name, rootId: item.rootId, ok: true, ...outcome.result })
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error
+          results.push({ name, rootId: item.rootId, ok: false, code: error.code, message: error.message, ...(error.details ?? {}) })
+        }
+      }
+      if (lockDocument !== undefined && lockDocument !== null) await writeLockDocument(globalLockPath(), lockDocument)
+      await writeUpdateState(state)
+      const ok = results.filter((result) => result.ok).length
+      return { results, counts: { ok, failed: results.length - ok } }
+    } finally {
+      updating = false
+    }
+  }
+
+  async function ensureAgentsRoot() {
+    const path = join(agentsHome(), 'skills')
+    await mkdir(path, { recursive: true })
+    return realpath(path)
+  }
+
+  async function runUpdate({ entry, name, agentsRoot, physical, state, force }) {
+    const folder = skillFolderOf(entry)
+    const exists = await stat(physical).then((info) => info.isDirectory()).catch(() => false)
+    let localHash
+    if (exists) {
+      localHash = await computeFolderHash(physical)
+      const baseline = state.skills[name]?.localHash
+      const modified = typeof baseline === 'string' ? baseline !== localHash : false
+      if (modified && !force) {
+        throw new ApiError('LOCAL_CHANGES', `"${name}" has local changes; pass force to overwrite them`)
+      }
+    }
+
+    const parsed = parseRepo(entry)
+    if (parsed === undefined) throw new ApiError('UNSUPPORTED_SOURCE', `cannot resolve a repository for "${name}"`)
+    const isTreeHash = /^[0-9a-f]{40}$/i.test(entry.hash)
+    let upstreamHash = entry.hash
+    let staged
+    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)
+
+    if (isTreeHash) {
+      const snapshot = await repoSnapshot(parsed.repo, entry.ref)
+      const sha = treeShaFor(snapshot.tree, folder)
+      if (sha === undefined) throw new ApiError('UPSTREAM_PATH_MISSING', `"${folder}" is not a tree in ${parsed.repo}`)
+      upstreamHash = sha
+      const unchanged = exists && String(sha).toLowerCase() === String(entry.hash).toLowerCase() && localHash === state.skills[name]?.localHash
+      if (unchanged) {
+        state.skills[name] = { localHash, syncedAt: new Date().toISOString() }
+        return { result: { status: 'up-to-date' } }
+      }
+    }
+
+    const stage = join(agentsRoot, `.dsh-stage-${timestamp}-${name}`)
+    await rm(stage, { recursive: true, force: true }).catch(() => {})
+    try {
+      let entries
+      if (parsed.type === 'git') {
+        const clone = join(agentsRoot, `.dsh-clone-${timestamp}-${name}`)
+        await rm(clone, { recursive: true, force: true }).catch(() => {})
+        await mkdir(clone, { recursive: true })
+        await cloneRepo(gitImpl, entry, clone)
+        try {
+          const prefix = folder === '' ? clone : join(clone, ...folder.split('/'))
+          await copySkillPackage(prefix, stage, { used: 0, limit: folder === '' ? ROOT_SKILL_LIMIT : MAX_PACKAGE_BYTES })
+        } finally {
+          await rm(clone, { recursive: true, force: true }).catch(() => {})
+        }
+      } else {
+        entries = await downloadRepoArchive(fetchImpl, entry)
+        await mkdir(stage, { recursive: true })
+        await writeExtractedFiles(entries, folder, stage, folder === '' ? ROOT_SKILL_LIMIT : MAX_PACKAGE_BYTES)
+      }
+      const skillFile = join(stage, 'SKILL.md')
+      const text = await readFile(skillFile, 'utf8').catch(() => undefined)
+      if (text === undefined) throw new ApiError('UPSTREAM_PATH_MISSING', 'the upstream skill has no SKILL.md')
+      validateTransferredDocument(text, name)
+      if (!isTreeHash) upstreamHash = await computeFolderHash(stage)
+
+      let backupPath
+      if (exists) {
+        backupPath = join(agentsRoot, `.dsh-bak-${timestamp}-${name}`)
+        await rm(backupPath, { recursive: true, force: true }).catch(() => {})
+        await rename(physical, backupPath)
+      }
+      try {
+        await rename(stage, physical)
+      } catch (error) {
+        if (backupPath !== undefined) await rename(backupPath, physical).catch(() => {})
+        throw new ApiError('UPDATE_FAILED', `could not move the new package into place: ${errorMessage(error)}`)
+      }
+      if (backupPath !== undefined) await pruneBackups(agentsRoot, name)
+      const newLocal = await computeFolderHash(physical)
+      state.skills[name] = { localHash: newLocal, syncedAt: new Date().toISOString() }
+      return {
+        lockHash: upstreamHash,
+        result: {
+          status: exists ? 'updated' : 'installed',
+          ...(backupPath === undefined ? {} : { backupPath }),
+          upstreamHash,
+        },
+      }
+    } finally {
+      await rm(stage, { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
   return api
 }
 
@@ -1122,7 +1809,10 @@ function registerTool(ctx, api) {
  * ------------------------------------------------------------------ */
 
 export function apply(ctx) {
-  const api = createApi(ctx)
+  // Tests inject a fake network/git boundary through this global; production
+  // always uses the real fetch and the real `git` binary.
+  const deps = globalThis.__dshProjectSkillsTest?.deps ?? {}
+  const api = createApi(ctx, deps)
   const handler = createHandler(ctx, api)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
