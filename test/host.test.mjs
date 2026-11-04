@@ -16,6 +16,7 @@ const API = '/dsh-project-skills/api/'
 function createHost({ projectDir }) {
   let handler
   const registrations = []
+  const tools = []
   const ctx = {
     logger: { warn() {}, info() {}, error() {} },
     get(name) {
@@ -24,6 +25,14 @@ function createHost({ projectDir }) {
           async observeSession(sessionId) {
             if (sessionId !== 'session-1') throw new Error('not found')
             return { projections: { values: { workingDirectory: projectDir } }, header: { cwd: projectDir } }
+          },
+        }
+      }
+      if (name === 'tools') {
+        return {
+          register(definition) {
+            tools.push(definition)
+            return () => {}
           },
         }
       }
@@ -41,7 +50,7 @@ function createHost({ projectDir }) {
     },
     connection: { requestRejection: () => undefined },
   }
-  return { ctx, call: (method, payload, { sessionId = 'session-1' } = {}) => request(handler, method, { ...payload, sessionId }) }
+  return { ctx, tools, call: (method, payload, { sessionId = 'session-1' } = {}) => request(handler, method, { ...payload, sessionId }) }
 }
 
 function request(handler, method, payload) {
@@ -94,9 +103,9 @@ async function withSandbox(run) {
   const previousHandler = globalThis.__dshProjectSkillsTest
   try {
     const { apply } = await import('../index.js')
-    const { ctx, call } = createHost({ projectDir })
+    const { ctx, call, tools } = createHost({ projectDir })
     apply(ctx)
-    await run({ call, projectDir, dshHome, agentsHome })
+    await run({ call, projectDir, dshHome, agentsHome, tools })
   } finally {
     process.env.DSH_HOME = previous.DSH_HOME
     process.env.DSH_AGENTS_HOME = previous.DSH_AGENTS_HOME
@@ -171,6 +180,52 @@ test('toggle rewrites invocation flags and keeps the body', async () => {
     const hidden = await call('toggle', { rootId: 'project-dsh', name: 'demo-skill', field: 'user', value: false })
     assert.equal(hidden.body.userInvocable, false)
     assert.match(hidden.body.content, /user-invocable: false/)
+  })
+})
+
+test('write updates an existing flat skill file in place', async () => {
+  await withSandbox(async ({ call, projectDir }) => {
+    const skillsDir = join(projectDir, '.dsh', 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    const flat = join(skillsDir, 'flat-skill.md')
+    await writeFile(flat, SKILL.replaceAll('demo-skill', 'flat-skill'))
+
+    const response = await call('write', {
+      rootId: 'project-dsh',
+      name: 'flat-skill',
+      content: SKILL.replaceAll('demo-skill', 'flat-skill').replace('Body.', 'Updated body.'),
+    })
+    assert.equal(response.body.ok, true)
+    assert.equal(response.body.created, false)
+    assert.equal(response.body.path.toLowerCase(), flat.toLowerCase())
+    assert.match(await readFile(flat, 'utf8'), /Updated body\./)
+    // A flat skill must not be split into a `<name>/` package directory.
+    await assert.rejects(stat(join(skillsDir, 'flat-skill')))
+  })
+})
+
+test('the model-facing tool maps create/update onto the write operation', async () => {
+  await withSandbox(async ({ projectDir, tools }) => {
+    assert.equal(tools.length, 1)
+    const tool = tools[0]
+    assert.equal(tool.name, 'skills_manage')
+
+    const created = await tool.execute(
+      { action: 'create', rootId: 'project-dsh', name: 'tool-skill', content: SKILL.replaceAll('demo-skill', 'tool-skill') },
+      { agent: { id: 'session-1' } },
+    )
+    assert.equal(created.created, true)
+    assert.match(await readFile(join(projectDir, '.dsh', 'skills', 'tool-skill', 'SKILL.md'), 'utf8'), /name: tool-skill/)
+
+    const updated = await tool.execute(
+      { action: 'update', rootId: 'project-dsh', name: 'tool-skill', content: SKILL.replaceAll('demo-skill', 'tool-skill').replace('Body.', 'By tool.') },
+      { agent: { id: 'session-1' } },
+    )
+    assert.equal(updated.created, false)
+    assert.match(await readFile(join(projectDir, '.dsh', 'skills', 'tool-skill', 'SKILL.md'), 'utf8'), /By tool\./)
+
+    const listed = await tool.execute({ action: 'list' }, { agent: { id: 'session-1' } })
+    assert.ok(listed.counts.total >= 1)
   })
 })
 

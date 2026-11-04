@@ -32,7 +32,7 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
    「项目技能」；
 2. 顶部切换 **Project N / Global M** 分组，点任意一行进入详情；
 3. 详情里可以直接编辑 SKILL.md 正文与 frontmatter，保存后列表自动刷新；
-4. 工具栏可以刷新、新建技能、打开技能目录。
+4. 工具栏可以刷新与新建技能（名称 + 描述生成 frontmatter 模板，再手动补正文）。
 
 ## 安全边界
 

@@ -307,7 +307,9 @@ function setFrontmatterField(lines, key, rawValue) {
 
 function renderSkillDocument(lines, body) {
   const head = lines.length === 0 ? '' : `${lines.join('\n')}\n`
-  return `---\n${head}---\n\n${body.replace(/^\n+/, '')}`
+  // Keep every body byte: the server only rewrites the frontmatter block. The
+  // newline that terminated the closing `---` is re-emitted here.
+  return `---\n${head}---\n${body}`
 }
 
 /* ------------------------------------------------------------------ *
@@ -450,7 +452,9 @@ async function ensureRootDirectory(root) {
 async function writeSkillFile(root, name, content) {
   const rootReal = await ensureRootDirectory(root)
   const existing = await locateSkillFile(rootReal, name)
-  const directory = existing?.directory ?? join(rootReal, name)
+  // A flat `<name>.md` skill keeps its file in the root itself; only a missing
+  // skill gets a fresh `<name>/` package directory.
+  const directory = existing === undefined ? join(rootReal, name) : existing.directory ?? rootReal
   const filePath = existing?.filePath ?? join(directory, 'SKILL.md')
   if (existing === undefined) await mkdir(directory, { recursive: true })
   const safeDirectory = await assertContained(rootReal, directory)
@@ -542,6 +546,7 @@ function createApi(ctx) {
         if (rootReal === undefined) continue
         const located = await locateSkillFile(rootReal, name)
         if (located === undefined) continue
+        await assertContained(rootReal, located.filePath)
         const content = await readFile(located.filePath, 'utf8')
         const parsed = parseSkillDocument(content)
         if (parsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', `${located.filePath}: ${parsed.problem}`)
@@ -756,9 +761,11 @@ function registerTool(ctx, api) {
     async execute(args, exec) {
       const payload = { ...(args !== null && typeof args === 'object' ? args : {}), sessionId: String(exec.agent?.id ?? '') }
       const action = payload.action
-      if (!Object.hasOwn(api, action)) throw new Error(`unknown action "${String(action)}"`)
-      if (action === 'roots') throw new Error('roots is not a tool action')
-      return await api[action](payload)
+      // The tool advertises create/update; both write one SKILL.md.
+      const method = action === 'create' || action === 'update' ? 'write' : action
+      if (!Object.hasOwn(api, method)) throw new Error(`unknown action "${String(action)}"`)
+      if (method === 'roots') throw new Error('roots is not a tool action')
+      return await api[method](payload)
     },
   }), 'dsh-project-skills: model-facing tool')
 }
