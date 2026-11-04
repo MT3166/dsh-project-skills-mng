@@ -448,6 +448,75 @@ test('batch rejects more than one hundred items', async () => {
   })
 })
 
+test('transfer copies the whole package, not just SKILL.md', async () => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    const source = join(projectDir, '.dsh', 'skills', 'rich-skill')
+    await mkdir(join(source, 'scripts'), { recursive: true })
+    await mkdir(join(source, 'node_modules'), { recursive: true })
+    await writeFile(join(source, 'SKILL.md'), SKILL.replaceAll('demo-skill', 'rich-skill'))
+    await writeFile(join(source, 'scripts', 'run.sh'), '#!/bin/sh\necho hi\n')
+    await writeFile(join(source, 'reference.md'), '# Reference\n')
+    await writeFile(join(source, 'node_modules', 'ignored.js'), 'nope')
+
+    const response = await call('transfer', {
+      name: 'rich-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'global-agents',
+      mode: 'copy',
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.equal(response.body.kind, 'package')
+    const copied = join(agentsHome, 'skills', 'rich-skill')
+    assert.match(await readFile(join(copied, 'scripts', 'run.sh'), 'utf8'), /echo hi/)
+    assert.match(await readFile(join(copied, 'reference.md'), 'utf8'), /Reference/)
+    await assert.rejects(stat(join(copied, 'node_modules')))
+  })
+})
+
+test('transfer keeps a flat skill flat when it moves tiers', async () => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    await mkdir(join(projectDir, '.dsh', 'skills'), { recursive: true })
+    await writeFile(join(projectDir, '.dsh', 'skills', 'flat-skill.md'), SKILL.replaceAll('demo-skill', 'flat-skill'))
+
+    const response = await call('transfer', {
+      name: 'flat-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'global-agents',
+      mode: 'move',
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.equal(response.body.kind, 'file')
+    assert.match(await readFile(join(agentsHome, 'skills', 'flat-skill.md'), 'utf8'), /name: flat-skill/)
+    await assert.rejects(stat(join(agentsHome, 'skills', 'flat-skill')))
+    await assert.rejects(stat(join(projectDir, '.dsh', 'skills', 'flat-skill.md')))
+  })
+})
+
+test('deleting a linked flat skill keeps the file behind the link', async (t) => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    const real = join(agentsHome, 'skills', 'flat-linked.md')
+    await mkdir(join(agentsHome, 'skills'), { recursive: true })
+    await writeFile(real, SKILL.replaceAll('demo-skill', 'flat-linked'))
+    await mkdir(join(projectDir, '.dsh', 'skills'), { recursive: true })
+    const linkPath = join(projectDir, '.dsh', 'skills', 'flat-linked.md')
+    try {
+      await symlink(real, linkPath, 'file')
+    } catch (error) {
+      if (error.code === 'EPERM' || error.code === 'EACCES' || error.code === 'ENOTSUP') {
+        t.skip('this OS/user cannot create file links')
+        return
+      }
+      throw error
+    }
+
+    const deleted = await call('delete', { rootId: 'project-dsh', name: 'flat-linked' })
+    assert.equal(deleted.body.ok, true, JSON.stringify(deleted.body))
+    assert.equal(deleted.body.unlinked, true)
+    await assert.rejects(stat(linkPath))
+    assert.match(await readFile(real, 'utf8'), /name: flat-linked/)
+  })
+})
+
 test('transfer copies a skill into another tier and leaves the source alone', async () => {
   await withSandbox(async ({ call, projectDir, agentsHome }) => {
     const source = join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md')

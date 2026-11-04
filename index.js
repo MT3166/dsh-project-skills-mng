@@ -26,6 +26,10 @@ const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_SKILL_BYTES = 512 * 1024
 const MAX_CONTENT_BYTES = 256 * 1024
+/** Copying a skill moves the whole package, so give it more room than one document. */
+const MAX_PACKAGE_BYTES = 32 * 1024 * 1024
+/** Directories that are never part of a skill package's content. */
+const SKIP_PACKAGE_NAMES = new Set(['.git', 'node_modules'])
 
 const ROOT_SPECS = Object.freeze([
   { id: 'project-dsh', scope: 'project', source: 'project-dsh', rank: 100, label: 'project · .dsh/skills' },
@@ -37,9 +41,10 @@ const ROOT_SPECS = Object.freeze([
 const ROOT_IDS = ROOT_SPECS.map((spec) => spec.id)
 
 class ApiError extends Error {
-  constructor(code, message) {
+  constructor(code, message, details) {
     super(message)
     this.code = code
+    this.details = details
   }
 }
 
@@ -532,6 +537,65 @@ function validateSkillContent(content, name) {
   return text
 }
 
+/** Validate a document copied between tiers: same rules, no client size limit. */
+function validateTransferredDocument(text, name) {
+  const parsed = parseSkillDocument(text)
+  if (parsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', parsed.problem)
+  if (parsed.name !== name) {
+    throw new ApiError('NAME_MISMATCH', `frontmatter name "${parsed.name}" does not match the target "${name}"`)
+  }
+}
+
+/**
+ * Copy a skill package directory tree.
+ *
+ * A skill is more than its SKILL.md — scripts/, references/ and assets/ are part
+ * of it — so a transfer reproduces the whole directory. Links inside the package
+ * are flattened to the bytes they resolve to (a copy must not depend on the
+ * source layout), and `.git` / `node_modules` never travel with it.
+ */
+async function copySkillPackage(sourceDir, destinationDir, budget) {
+  await mkdir(destinationDir, { recursive: true })
+  const entries = await readdir(sourceDir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (SKIP_PACKAGE_NAMES.has(entry.name)) continue
+    const from = join(sourceDir, entry.name)
+    const to = join(destinationDir, entry.name)
+    const info = await lstat(from)
+    let isLink = info.isSymbolicLink()
+    const real = isLink || info.isDirectory() ? await realpath(from).catch(() => undefined) : undefined
+    if (isLink && real === undefined) continue
+    const resolvedInfo = isLink ? await lstat(real).catch(() => undefined) : info
+    if (resolvedInfo === undefined) continue
+    if (resolvedInfo.isDirectory()) {
+      await copySkillPackage(real ?? from, to, budget)
+      continue
+    }
+    budget.used += resolvedInfo.size
+    if (budget.used > budget.limit) {
+      throw new ApiError('PACKAGE_TOO_LARGE', `package exceeds ${Math.round(budget.limit / 1024 / 1024)} MiB`)
+    }
+    await writeFile(to, await readFile(real ?? from))
+  }
+}
+
+/** Remove whatever occupies a skill name in one root (package, flat file, or link). */
+async function removeSkillEntry(rootReal, name, allowedReals) {
+  const located = await locateSkillFile(rootReal, name)
+  if (located === undefined) return
+  if (located.directory !== undefined) {
+    const info = await lstat(located.directory)
+    if (info.isSymbolicLink()) {
+      await unlink(located.directory)
+      return
+    }
+    const real = (await resolveContained(rootReal, located.directory, allowedReals)).realPath
+    await rm(real, { recursive: true, force: true })
+    return
+  }
+  await unlink(located.filePath)
+}
+
 /* ------------------------------------------------------------------ *
  * API operations
  * ------------------------------------------------------------------ */
@@ -661,8 +725,17 @@ function createApi(ctx) {
       if (located === undefined) throw new ApiError('SKILL_NOT_FOUND', `no skill named "${name}" in ${root.path}`)
       const contained = await resolveContained(rootReal, located.filePath, allowed)
       if (located.directory === undefined) {
-        await unlink(contained.realPath)
-        return { name, rootId: root.id, path: contained.realPath, deleted: true }
+        // A flat skill can itself be a link. Remove the link, never the file it
+        // points at, so a mirrored skill set is not silently destroyed.
+        const target = contained.linked ? located.filePath : contained.realPath
+        await unlink(target)
+        return {
+          name,
+          rootId: root.id,
+          path: target,
+          deleted: true,
+          ...(contained.linked ? { unlinked: true, realPath: contained.realPath } : {}),
+        }
       }
       const directoryInfo = await lstat(located.directory)
       if (directoryInfo.isSymbolicLink()) {
@@ -774,21 +847,51 @@ function createApi(ctx) {
         throw new ApiError('INVALID_TARGET', 'source and target tiers are the same')
       }
 
-      const targetReal = await realpath(target.path).catch(() => undefined)
-      const conflictWith = targetReal === undefined ? undefined : await locateSkillFile(targetReal, name)
-      if (conflictWith !== undefined && conflict !== 'overwrite') {
-        throw new ApiError('TARGET_EXISTS', `"${name}" already exists in ${target.path}`)
+      const kind = located.directory === undefined ? 'file' : 'package'
+      const sourceDirectory = kind === 'package' ? dirname(contained.realPath) : undefined
+
+      const targetReal = await ensureRootDirectory(target, allowed)
+      const conflictWith = await locateSkillFile(targetReal, name)
+      if (conflictWith !== undefined) {
+        const existing = await resolveContained(targetReal, conflictWith.filePath, allowed)
+        if (existing.realPath === contained.realPath) {
+          throw new ApiError('INVALID_TARGET', 'source and target are the same skill package')
+        }
+        if (conflict !== 'overwrite') throw new ApiError('TARGET_EXISTS', `"${name}" already exists in ${target.path}`)
+        await removeSkillEntry(targetReal, name, allowed)
       }
 
-      const content = await readFile(contained.realPath, 'utf8')
-      const written = await writeSkillFile(target, name, content, allowed)
+      let targetPath
+      if (kind === 'file') {
+        const text = await readFile(contained.realPath, 'utf8')
+        validateTransferredDocument(text, name)
+        targetPath = join(targetReal, `${name}.md`)
+        await writeFile(targetPath, text, 'utf8')
+      } else {
+        const destination = join(targetReal, name)
+        const budget = { used: 0, limit: MAX_PACKAGE_BYTES }
+        await copySkillPackage(sourceDirectory ?? dirname(contained.realPath), destination, budget)
+        targetPath = join(destination, 'SKILL.md')
+        validateTransferredDocument(await readFile(targetPath, 'utf8'), name)
+      }
+
       let unlinked = false
       if (mode === 'move') {
-        if (linked) {
-          await unlink(located.directory ?? located.filePath)
-          unlinked = true
-        } else {
-          await api.delete({ sessionId: payload.sessionId, rootId: source.id, name })
+        try {
+          if (linked) {
+            await unlink(located.directory ?? located.filePath)
+            unlinked = true
+          } else if (kind === 'package' && sourceDirectory !== undefined) {
+            await rm(sourceDirectory, { recursive: true, force: true })
+          } else {
+            await unlink(located.filePath)
+          }
+        } catch (error) {
+          throw new ApiError(
+            'SOURCE_REMOVE_FAILED',
+            `copied to ${target.path} but the source could not be removed: ${errorMessage(error)}`,
+            { targetPath },
+          )
         }
       }
       return {
@@ -796,8 +899,8 @@ function createApi(ctx) {
         rootId: source.id,
         targetRootId: target.id,
         mode,
-        targetPath: written.filePath,
-        created: written.created,
+        kind,
+        targetPath,
         ...(unlinked ? { unlinked } : {}),
       }
     },
@@ -812,7 +915,14 @@ function createApi(ctx) {
       return { name: item.name, rootId: item.rootId, ok: true, ...value }
     } catch (error) {
       if (error instanceof ApiError) {
-        return { name: item.name, rootId: item.rootId, ok: false, code: error.code, message: error.message }
+        return {
+          name: item.name,
+          rootId: item.rootId,
+          ok: false,
+          code: error.code,
+          message: error.message,
+          ...(error.details ?? {}),
+        }
       }
       throw error
     }
