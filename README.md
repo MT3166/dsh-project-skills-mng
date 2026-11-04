@@ -64,6 +64,19 @@ node --test test/client.smoke.mjs
 node test/probe.mjs
 ```
 
+改面板样式时不必反复重启 DSH：`test/preview.mjs` 会用真实的主题 token（从
+`@deepseek-ai/dsh-client-ui-theme` 抽出）与一个迷你 React 把 `client.js` 渲染成静态 HTML，
+输出到 `test/preview-out/`（`list|detail|edit|create|empty` × `light|dark`），
+再用本机 Edge/Chrome headless 截图查看效果：
+
+```text
+node test/preview.mjs
+msedge --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 ^
+  --window-size=420,830 --user-data-dir=%TEMP%\edgeshot-list-light ^
+  --screenshot=test\preview-out\list-light.png ^
+  "file:///%CD%/test/preview-out/list-light.html"
+```
+
 - `index.js` — Host 半边：`/dsh-project-skills/api` 路由（roots/list/read/write/delete/toggle）
   与 `skills_manage` 工具；
 - `client.js` — Web 客户端半边：右栏 tab 类型、guide 卡片、面板 UI（模块表格式，

@@ -58,6 +58,7 @@ window.__ModuleLoader__.load({
       'group.global': '全局技能',
       'group.empty': '这个分组下还没有技能。',
 
+      'roots.label': '位置',
       'root.exists': '目录存在',
       'root.missing': '目录不存在',
       'root.writable': '可写',
@@ -67,7 +68,7 @@ window.__ModuleLoader__.load({
       'root.global-dsh': '全局 · .dsh/skills',
       'root.global-agents': '全局 · .agents/skills',
 
-      'shadowed.by': '被 {path} 覆盖',
+      'shadowed.by': '被「{path}」覆盖',
       'flag.modelOn': '模型可调用',
       'flag.modelOff': '模型不可调用',
       'flag.userOn': '用户可调用',
@@ -79,6 +80,7 @@ window.__ModuleLoader__.load({
 
       'empty.title': '还没有任何技能',
       'empty.hint': '新建一个技能，或把 SKILL.md 放进项目的 .dsh/skills 目录。',
+      'empty.cta': '新建第一个技能',
 
       'detail.back': '返回',
       'detail.edit': '编辑',
@@ -137,6 +139,7 @@ window.__ModuleLoader__.load({
       'group.global': 'Global skills',
       'group.empty': 'No skills in this group yet.',
 
+      'roots.label': 'Location',
       'root.exists': 'present',
       'root.missing': 'missing',
       'root.writable': 'writable',
@@ -158,6 +161,7 @@ window.__ModuleLoader__.load({
 
       'empty.title': 'No skills yet',
       'empty.hint': 'Create a skill, or drop a SKILL.md into the project .dsh/skills root.',
+      'empty.cta': 'Create your first skill',
 
       'detail.back': 'Back',
       'detail.edit': 'Edit',
@@ -211,11 +215,13 @@ window.__ModuleLoader__.load({
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   height: 100%;
   min-height: 0;
   overflow: auto;
-  padding: 10px 12px 16px;
+  padding: 12px 12px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-scrollbar-bg-l1) transparent;
   color: var(--dsw-alias-label-primary);
   font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: 1.5;
@@ -227,344 +233,574 @@ window.__ModuleLoader__.load({
 .dps-root input,
 .dps-root select,
 .dps-root textarea { font: inherit; color: inherit; }
+.dps-root :focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+.dps-root ::selection { background: var(--dsw-alias-markdown-code-segment-unselected); }
+
+.dps-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- toolbar ---------------------------------------------------------- */
 
 .dps-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 8px;
   flex: none;
+  min-width: 0;
 }
-.dps-title { font-weight: 600; font-size: var(--dsh-content-font-size-primary, 14px); }
+.dps-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
 .dps-spacer { flex: 1 1 auto; }
-
 .dps-count {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-secondary);
   font-size: var(--dsh-content-font-size-tertiary, 11px);
-  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .dps-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 3px 9px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
-  cursor: pointer;
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
+  font-weight: 500;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
 }
-.dps-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
-.dps-btn:disabled { opacity: 0.5; cursor: default; }
+.dps-btn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-border-l3);
+}
+.dps-btn:active:not(:disabled) { background: var(--dsw-alias-interactive-bg-active); }
+.dps-btn:disabled { opacity: 0.45; cursor: default; }
+.dps-btn.dps-primary:disabled {
+  opacity: 1;
+  border-color: transparent;
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-tertiary);
+}
 .dps-btn.dps-primary {
   border-color: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
 }
-.dps-btn.dps-danger {
-  border-color: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-state-error-primary);
-}
+.dps-btn.dps-primary:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover); border-color: var(--dsw-alias-button-primary-hover); }
+.dps-btn.dps-danger { color: var(--dsw-alias-state-error-primary); }
 
 .dps-link {
   padding: 0;
   border: 0;
+  border-radius: 4px;
   background: none;
-  color: var(--dsw-alias-state-business-primary);
-  cursor: pointer;
-  text-decoration: underline;
+  color: var(--dsw-alias-label-secondary);
   font-size: var(--dsh-content-font-size-tertiary, 11px);
+  cursor: pointer;
 }
+.dps-link:hover { color: var(--dsw-alias-label-primary); text-decoration: underline; text-underline-offset: 2px; }
 
-.dps-group { display: flex; flex-direction: column; gap: 2px; flex: none; }
+/* ---- groups ----------------------------------------------------------- */
+
+.dps-group { display: flex; flex-direction: column; gap: 6px; flex: none; }
 .dps-group-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
-  padding: 4px 2px;
+  height: 24px;
+  padding: 0 4px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
   text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
 }
-.dps-group-title { font-weight: 600; color: var(--dsw-alias-label-primary); }
-.dps-chevron { width: 12px; flex: none; color: var(--dsw-alias-label-tertiary); }
-.dps-group-body { display: flex; flex-direction: column; gap: 2px; padding-left: 2px; }
+.dps-group-head:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dps-group-title {
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.dps-group-body { display: flex; flex-direction: column; gap: 8px; }
 
-.dps-root-line {
+.dps-caret {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.16s ease;
+}
+.dps-caret[data-open="true"] { transform: rotate(45deg); }
+
+/* ---- roots ------------------------------------------------------------ */
+
+.dps-roots {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  padding: 1px 4px;
-  color: var(--dsw-alias-label-tertiary);
+  padding: 0 2px;
+}
+.dps-roots-label {
   font-size: var(--dsh-content-font-size-tertiary, 11px);
-  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
 }
-.dps-root-path {
+.dps-root-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 1px 7px 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
+  line-height: 18px;
+}
+.dps-root-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary);
+}
+.dps-root-dot[data-tone="missing"] { background: var(--dsw-alias-label-dimmed); }
+.dps-root-dot[data-tone="readonly"] { background: var(--dsw-alias-state-warn-primary); }
+.dps-root-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: ${MONO_FONT};
-  overflow-wrap: anywhere;
-  min-width: 0;
 }
-.dps-root-marks { margin-left: auto; white-space: nowrap; }
+.dps-root-mark { color: var(--dsw-alias-label-tertiary); white-space: nowrap; font-size: 10.5px; }
 
+/* ---- rows ------------------------------------------------------------- */
+
+.dps-rows {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+}
 .dps-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 6px 8px;
+  min-width: 0;
+  padding: 9px 10px;
   border: 0;
-  border-radius: 6px;
   background: transparent;
   color: var(--dsw-alias-label-primary);
   text-align: left;
   cursor: pointer;
-  min-width: 0;
+  transition: background-color 0.12s ease;
 }
+.dps-row + .dps-row { border-top: 1px solid var(--dsw-alias-border-l1); }
 .dps-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dps-row:active { background: var(--dsw-alias-interactive-bg-active); }
 .dps-row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .dps-name {
-  font-family: ${MONO_FONT};
-  font-weight: 600;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+  font-family: ${MONO_FONT};
+  font-size: 12px;
+  font-weight: 600;
 }
 .dps-badge {
   flex: none;
-  padding: 0 5px;
-  border: 0.5px solid var(--dsw-alias-border-l1);
+  padding: 1px 5px;
   border-radius: 4px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
-  line-height: 16px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-tertiary);
+  font-family: ${MONO_FONT};
+  font-size: 10px;
+  line-height: 14px;
   white-space: nowrap;
 }
-.dps-flags { display: inline-flex; gap: 3px; margin-left: auto; flex: none; }
+.dps-flags { display: inline-flex; gap: 4px; margin-left: auto; flex: none; }
 .dps-flag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 0.5px solid var(--dsw-alias-border-l1);
-  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 5px;
   color: var(--dsw-alias-label-secondary);
-  font-size: 10px;
+  background: var(--dsw-alias-markdown-code-block);
+  font-family: ${MONO_FONT};
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   line-height: 1;
 }
-.dps-flag.dps-flag-off { opacity: 0.35; }
+.dps-flag.dps-flag-off {
+  border-style: dashed;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.7;
+}
+.dps-row-caret {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  margin-left: 2px;
+  border-right: 1.5px solid var(--dsw-alias-label-tertiary);
+  border-bottom: 1.5px solid var(--dsw-alias-label-tertiary);
+  transform: rotate(-45deg);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.dps-row:hover .dps-row-caret,
+.dps-row:focus-visible .dps-row-caret { opacity: 1; }
 .dps-desc {
-  color: var(--dsw-alias-label-secondary);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsh-content-font-size-tertiary, 11.5px);
+  line-height: 1.45;
 }
 .dps-shadow {
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-label-secondary));
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-label-secondary));
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
 }
 .dps-hint {
   margin: 0;
   color: var(--dsw-alias-label-tertiary);
   font-size: var(--dsh-content-font-size-tertiary, 11px);
+  line-height: 1.5;
 }
+
+/* ---- load skeletons --------------------------------------------------- */
+
+.dps-skeleton { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+.dps-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+}
+.dps-skeleton-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-skeleton);
+  animation: dps-pulse 1.8s ease-in-out infinite;
+}
+.dps-skeleton-name { width: 46%; }
+.dps-skeleton-desc { width: 82%; height: 7px; }
+@keyframes dps-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ---- notices ---------------------------------------------------------- */
 
 .dps-warn {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  border: 0.5px solid var(--dsw-alias-state-warn-primary);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-label-primary));
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--dsw-alias-state-warn-tertiary);
   flex: none;
 }
-.dps-warn-head { display: flex; align-items: center; gap: 6px; }
+.dps-warn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--dsh-content-font-size-secondary, 12px);
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
 .dps-warn-list {
   margin: 0;
-  padding-left: 16px;
+  padding-left: 14px;
   max-height: 160px;
   overflow: auto;
   color: var(--dsw-alias-label-secondary);
   font-size: var(--dsh-content-font-size-tertiary, 11px);
+  line-height: 1.55;
 }
 
 .dps-error {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  border: 0.5px solid var(--dsw-alias-state-error-primary);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-state-error-primary);
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
   flex: none;
 }
 .dps-error-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.dps-error-title { font-weight: 600; }
-.dps-error-code {
-  font-family: ${MONO_FONT};
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
-  opacity: 0.85;
-}
+.dps-error-title { font-size: var(--dsh-content-font-size-secondary, 12px); font-weight: 600; color: var(--dsw-alias-state-error-primary); }
+.dps-error-code { font-family: ${MONO_FONT}; font-size: 10.5px; color: var(--dsw-alias-label-tertiary); }
 .dps-error-message {
   color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsh-content-font-size-secondary, 12px);
   overflow-wrap: anywhere;
 }
+.dps-error .dps-btn { height: 24px; padding: 0 8px; font-size: var(--dsh-content-font-size-tertiary, 11px); }
+
+/* ---- empty ------------------------------------------------------------ */
 
 .dps-empty {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
-  padding: 24px 8px;
+  margin-top: 4px;
+  padding: 24px 14px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
   text-align: center;
   color: var(--dsw-alias-label-secondary);
 }
 .dps-empty p { margin: 0; }
+.dps-empty-title { font-size: var(--dsh-content-font-size-secondary, 13px); font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dps-empty .dps-btn { margin-top: 8px; }
+
+/* ---- detail / edit / create ------------------------------------------ */
 
 .dps-detail,
 .dps-edit,
-.dps-create { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.dps-create { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1 1 auto; }
 .dps-detail-name {
-  margin: 0;
-  font-size: var(--dsh-content-font-size-primary, 14px);
+  margin: 2px 0 0;
+  font-family: ${MONO_FONT};
+  font-size: 15px;
   font-weight: 600;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 .dps-detail-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  color: var(--dsw-alias-label-secondary);
+  gap: 6px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
 }
 .dps-mono {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: ${MONO_FONT};
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
-  overflow-wrap: anywhere;
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-tertiary);
 }
-.dps-section { display: flex; flex-direction: column; gap: 4px; }
-.dps-section-title {
-  font-weight: 600;
+.dps-invoc {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+}
+.dps-invoc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: var(--dsh-content-font-size-secondary, 12px);
   color: var(--dsw-alias-label-secondary);
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
 }
-.dps-body {
-  margin: 0;
-  padding: 8px;
-  border: 0.5px solid var(--dsw-alias-border-l1);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
-  font-family: ${MONO_FONT};
-  font-size: var(--dsh-content-font-size-secondary, 13px);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 56vh;
-  overflow: auto;
-}
+.dps-invoc-row + .dps-invoc-row { border-top: 1px solid var(--dsw-alias-border-l1); }
+.dps-invoc-row .dps-switch { margin-left: auto; }
 
-.dps-invoc { display: flex; flex-direction: column; gap: 4px; }
-.dps-invoc-row { display: flex; align-items: center; gap: 8px; }
 .dps-switch {
   position: relative;
-  width: 30px;
-  height: 16px;
+  width: 34px;
+  height: 20px;
   flex: none;
   padding: 0;
-  border: 0.5px solid var(--dsw-alias-border-l2);
+  border: 0;
   border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-interactive-bg-active);
   cursor: pointer;
+  transition: background-color 0.16s ease;
 }
 .dps-switch::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--dsw-alias-label-tertiary);
-  transition: transform 0.12s ease;
+  background: var(--dsw-alias-switch-thumb);
+  box-shadow: var(--dsw-shadow-lv1);
+  transition: transform 0.16s ease;
 }
-.dps-switch[data-on="true"] {
-  border-color: var(--dsw-alias-brand-primary);
-  background: var(--dsw-alias-brand-primary);
-}
+.dps-switch[data-on="true"] { background: var(--dsw-alias-brand-primary); }
 .dps-switch[data-on="true"]::after {
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsw-alias-label-primary-foreground);
   transform: translateX(14px);
 }
-.dps-switch:disabled { opacity: 0.5; cursor: default; }
+.dps-switch:disabled { opacity: 0.45; cursor: default; }
+
+.dps-section { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.dps-section-title {
+  font-size: var(--dsh-content-font-size-tertiary, 11px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--dsw-alias-label-secondary);
+}
+.dps-body {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-primary);
+  font-family: ${MONO_FONT};
+  font-size: var(--dsh-content-font-size-secondary, 12px);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 52vh;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-scrollbar-bg-l1) transparent;
+}
 
 .dps-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.dps-actions .dps-btn.dps-danger {
+  border-color: transparent;
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+.dps-actions .dps-btn.dps-danger:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--dsw-alias-state-error-primary);
+  opacity: 0.88;
+}
 .dps-confirm {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 0.5px solid var(--dsw-alias-state-error-primary);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
-.dps-confirm p { margin: 0; }
+.dps-confirm p { margin: 0; font-size: var(--dsh-content-font-size-secondary, 12px); }
 
 .dps-editor {
   width: 100%;
   min-height: 320px;
   flex: 1 1 auto;
-  padding: 8px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-markdown-code-block);
   color: var(--dsw-alias-label-primary);
   font-family: ${MONO_FONT};
-  font-size: var(--dsh-content-font-size-secondary, 13px);
-  line-height: 1.5;
+  font-size: var(--dsh-content-font-size-secondary, 12px);
+  line-height: 1.65;
+  tab-size: 2;
   resize: vertical;
 }
+.dps-editor:hover { border-color: var(--dsw-alias-border-l3); }
 
-.dps-field { display: flex; flex-direction: column; gap: 4px; }
+.dps-field { display: flex; flex-direction: column; gap: 5px; }
 .dps-label {
   color: var(--dsw-alias-label-secondary);
-  font-weight: 600;
   font-size: var(--dsh-content-font-size-tertiary, 11px);
+  font-weight: 600;
 }
 .dps-input,
 .dps-select {
   width: 100%;
-  padding: 5px 8px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
+.dps-input:hover:not(:disabled),
+.dps-select:hover:not(:disabled) { border-color: var(--dsw-alias-border-l3); }
+.dps-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+.dps-select { padding-right: 6px; }
 .dps-input:focus-visible,
 .dps-select:focus-visible,
 .dps-editor:focus-visible {
-  outline: 1px solid var(--dsw-alias-brand-primary);
-  outline-offset: 0;
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-business-primary) 16%, transparent);
 }
 .dps-invalid {
   color: var(--dsw-alias-state-error-primary);
   font-size: var(--dsh-content-font-size-tertiary, 11px);
 }
+.dps-input[aria-invalid="true"] { border-color: var(--dsw-alias-state-error-primary); }
+.dps-field-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: ${MONO_FONT};
+  font-size: 10.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dps-root *,
+  .dps-root *::before,
+  .dps-root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 `
 
     /* ------------------------------------------------------------------ *
@@ -738,6 +974,45 @@ window.__ModuleLoader__.load({
       return root !== null && root !== undefined && typeof root.id === 'string'
         ? root.id
         : ''
+    }
+
+    // Compact path label for the root chips: "~/.dsh/skills" for anything
+    // under the user's home, otherwise the two innermost segments. The full
+    // path stays in the chip's title attribute.
+    const HOME_SEGMENT = /^(?:[A-Za-z]:)?[\\/](?:Users|home)[\\/][^\\/]+/i
+
+    function shortRootPath(path) {
+      const text = typeof path === 'string' ? path : ''
+      const match = text.match(HOME_SEGMENT)
+      const rest = match === null ? text : text.slice(match[0].length)
+      const segments = rest.split(/[\\/]+/).filter((segment) => segment !== '')
+      const tail = segments.slice(-2).join('/')
+      if (match !== null) return '~/' + tail
+      if (segments.length <= 2) return text
+      return tail
+    }
+
+    function shadowLabel(translate, shadowedBy) {
+      if (shadowedBy !== null && shadowedBy !== undefined) {
+        if (typeof shadowedBy.rootId === 'string' && shadowedBy.rootId !== '') {
+          const label = rootLabel(translate, { id: shadowedBy.rootId })
+          if (label !== '') return label
+        }
+        if (typeof shadowedBy.path === 'string' && shadowedBy.path !== '') {
+          return shortRootPath(shadowedBy.path)
+        }
+      }
+      return ''
+    }
+
+    function createRootPath(roots, rootId) {
+      const list = Array.isArray(roots) ? roots : []
+      for (const root of list) {
+        if (root !== null && root !== undefined && root.id === rootId) {
+          return typeof root.path === 'string' ? root.path : ''
+        }
+      }
+      return ''
     }
 
     function rootSource(data, rootId, fallback) {
@@ -984,22 +1259,6 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'dps-toolbar' },
         h('span', { className: 'dps-title' }, t('list.title')),
-        counts !== null
-          ? h(
-              Fragment,
-              null,
-              h(
-                'span',
-                { className: 'dps-count', title: t('group.project') },
-                tf(t, 'counts.project', { count: counts.project }),
-              ),
-              h(
-                'span',
-                { className: 'dps-count', title: t('group.global') },
-                tf(t, 'counts.global', { count: counts.global }),
-              ),
-            )
-          : null,
         h('span', { className: 'dps-spacer' }),
         h(
           'button',
@@ -1037,7 +1296,21 @@ window.__ModuleLoader__.load({
       }
 
       if (data === null && loading) {
-        parts.push(h('p', { className: 'dps-hint', key: 'loading' }, t('status.loading')))
+        parts.push(
+          h(
+            'div',
+            { className: 'dps-skeleton', key: 'loading', 'aria-busy': 'true' },
+            h('span', { className: 'dps-sr-only' }, t('status.loading')),
+            [0, 1, 2].map((index) =>
+              h(
+                'div',
+                { className: 'dps-skeleton-row', key: String(index) },
+                h('span', { className: 'dps-skeleton-bar dps-skeleton-name' }),
+                h('span', { className: 'dps-skeleton-bar dps-skeleton-desc' }),
+              ),
+            ),
+          ),
+        )
       }
 
       if (data !== null && data !== undefined) {
@@ -1091,13 +1364,25 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'dps-empty', key: 'empty' },
-              h('p', null, t('empty.title')),
+              h('p', { className: 'dps-empty-title' }, t('empty.title')),
               h('p', { className: 'dps-hint' }, t('empty.hint')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dps-btn dps-primary',
+                  onClick: props.onCreate,
+                },
+                t('empty.cta'),
+              ),
             ),
           )
         }
 
         for (const group of groups) {
+          // The empty card already explains the situation; zero-count groups
+          // would only repeat "no skills yet" twice.
+          if (total === 0) break
           if (group === null || typeof group !== 'object') continue
           const scope = group.scope === 'global' ? 'global' : 'project'
           const isCollapsed = collapsed[scope] === true
@@ -1109,96 +1394,113 @@ window.__ModuleLoader__.load({
             : h(
                 'div',
                 { className: 'dps-group-body' },
-                roots.map((root, rootIndex) =>
-                  h(
-                    'div',
-                    {
-                      className: 'dps-root-line',
-                      key: 'root-' + String(rootIndex),
-                      title: typeof root.path === 'string' ? root.path : '',
-                    },
-                    h(
-                      'span',
-                      { className: 'dps-root-path' },
-                      typeof root.path === 'string' ? root.path : String(root.id),
-                    ),
-                    h(
-                      'span',
-                      { className: 'dps-root-marks' },
-                      (root.exists === true ? t('root.exists') : t('root.missing')) +
-                        ' \u00b7 ' +
-                        (root.writable === true ? t('root.writable') : t('root.readonly')),
-                    ),
-                  ),
-                ),
+                roots.length > 0
+                  ? h(
+                      'div',
+                      { className: 'dps-roots', key: 'roots' },
+                      h('span', { className: 'dps-roots-label' }, t('roots.label')),
+                      roots.map((root, rootIndex) => {
+                        const exists = root.exists === true
+                        const writable = root.writable === true
+                        const tone = !exists ? 'missing' : writable ? 'ok' : 'readonly'
+                        const marks = []
+                        if (!exists) marks.push(t('root.missing'))
+                        if (!writable) marks.push(t('root.readonly'))
+                        const fullPath =
+                          typeof root.path === 'string' ? root.path : String(root.id)
+                        return h(
+                          'div',
+                          {
+                            className: 'dps-root-line',
+                            key: 'root-' + String(rootIndex),
+                            title:
+                              fullPath +
+                              (marks.length > 0 ? ' \u00b7 ' + marks.join(' \u00b7 ') : ''),
+                          },
+                          h('span', {
+                            className: 'dps-root-dot',
+                            'data-tone': tone,
+                            'aria-hidden': 'true',
+                          }),
+                          h('span', { className: 'dps-root-name' }, shortRootPath(fullPath)),
+                          marks.length > 0
+                            ? h('span', { className: 'dps-root-mark' }, marks.join(' \u00b7 '))
+                            : null,
+                        )
+                      }),
+                    )
+                  : null,
                 skills.length === 0
                   ? h('p', { className: 'dps-hint' }, t('group.empty'))
-                  : skills.map((skill, skillIndex) =>
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'dps-row',
-                          key: 'skill-' + String(skillIndex),
-                          onClick: () => props.onOpenSkill(skill),
-                        },
+                  : h(
+                      'div',
+                      { className: 'dps-rows' },
+                      skills.map((skill, skillIndex) =>
                         h(
-                          'span',
-                          { className: 'dps-row-top' },
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'dps-row',
+                            key: 'skill-' + String(skillIndex),
+                            onClick: () => props.onOpenSkill(skill),
+                          },
                           h(
                             'span',
-                            { className: 'dps-name', title: skill.name },
-                            skill.name,
-                          ),
-                          typeof skill.source === 'string'
-                            ? h('span', { className: 'dps-badge' }, skill.source)
-                            : null,
-                          h(
-                            'span',
-                            { className: 'dps-flags' },
-                            h(Flag, {
-                              label: 'M',
-                              on: skill.modelInvocable === true,
-                              title:
-                                skill.modelInvocable === true
-                                  ? t('flag.modelOn')
-                                  : t('flag.modelOff'),
-                            }),
-                            h(Flag, {
-                              label: 'U',
-                              on: skill.userInvocable === true,
-                              title:
-                                skill.userInvocable === true
-                                  ? t('flag.userOn')
-                                  : t('flag.userOff'),
-                            }),
-                          ),
-                        ),
-                        typeof skill.description === 'string' && skill.description !== ''
-                          ? h('span', { className: 'dps-desc' }, skill.description)
-                          : null,
-                        skill.shadowed === true
-                          ? h(
+                            { className: 'dps-row-top' },
+                            h(
                               'span',
-                              {
-                                className: 'dps-shadow',
+                              { className: 'dps-name', title: skill.name },
+                              skill.name,
+                            ),
+                            typeof skill.source === 'string'
+                              ? h('span', { className: 'dps-badge' }, skill.source)
+                              : null,
+                            h(
+                              'span',
+                              { className: 'dps-flags' },
+                              h(Flag, {
+                                label: 'M',
+                                on: skill.modelInvocable === true,
                                 title:
-                                  skill.shadowedBy !== null &&
-                                  skill.shadowedBy !== undefined &&
-                                  typeof skill.shadowedBy.path === 'string'
-                                    ? skill.shadowedBy.path
-                                    : '',
-                              },
-                              tf(t, 'shadowed.by', {
-                                path:
-                                  skill.shadowedBy !== null &&
-                                  skill.shadowedBy !== undefined &&
-                                  typeof skill.shadowedBy.path === 'string'
-                                    ? skill.shadowedBy.path
-                                    : '',
+                                  skill.modelInvocable === true
+                                    ? t('flag.modelOn')
+                                    : t('flag.modelOff'),
                               }),
-                            )
-                          : null,
+                              h(Flag, {
+                                label: 'U',
+                                on: skill.userInvocable === true,
+                                title:
+                                  skill.userInvocable === true
+                                    ? t('flag.userOn')
+                                    : t('flag.userOff'),
+                              }),
+                              h('span', {
+                                className: 'dps-row-caret',
+                                'aria-hidden': 'true',
+                              }),
+                            ),
+                          ),
+                          typeof skill.description === 'string' && skill.description !== ''
+                            ? h('span', { className: 'dps-desc' }, skill.description)
+                            : null,
+                          skill.shadowed === true
+                            ? h(
+                                'span',
+                                {
+                                  className: 'dps-shadow',
+                                  title:
+                                    skill.shadowedBy !== null &&
+                                    skill.shadowedBy !== undefined &&
+                                    typeof skill.shadowedBy.path === 'string'
+                                      ? skill.shadowedBy.path
+                                      : '',
+                                },
+                                tf(t, 'shadowed.by', {
+                                  path: shadowLabel(t, skill.shadowedBy),
+                                }),
+                              )
+                            : null,
+                        ),
                       ),
                     ),
               )
@@ -1219,11 +1521,11 @@ window.__ModuleLoader__.load({
                       [scope]: !previous[scope],
                     })),
                 },
-                h(
-                  'span',
-                  { className: 'dps-chevron', 'aria-hidden': 'true' },
-                  isCollapsed ? '\u25b8' : '\u25be',
-                ),
+                h('span', {
+                  className: 'dps-caret',
+                  'data-open': String(!isCollapsed),
+                  'aria-hidden': 'true',
+                }),
                 h(
                   'span',
                   { className: 'dps-group-title' },
@@ -1541,12 +1843,13 @@ window.__ModuleLoader__.load({
                     onChange: (event) => props.onChange({ rootId: event.target.value }),
                   },
                   roots.map((root) =>
-                    h(
-                      'option',
-                      { key: root.id, value: root.id },
-                      rootLabel(t, root) + ' \u00b7 ' + String(root.path),
-                    ),
+                    h('option', { key: root.id, value: root.id }, rootLabel(t, root)),
                   ),
+                ),
+                h(
+                  'span',
+                  { className: 'dps-field-note', title: createRootPath(roots, create.rootId) },
+                  createRootPath(roots, create.rootId),
                 ),
               ),
               h(
