@@ -897,12 +897,17 @@ function skillFolderOf(entry) {
   return skillPath.endsWith('/SKILL.md') ? skillPath.slice(0, -'/SKILL.md'.length) : skillPath
 }
 
+async function defaultBranchOf(fetchImpl, repo) {
+  const info = await githubJson(fetchImpl, `/repos/${repo}`)
+  return typeof info.default_branch === 'string' && info.default_branch !== '' ? info.default_branch : 'main'
+}
+
 async function downloadRepoArchive(fetchImpl, entry) {
   const parsed = parseRepo(entry)
   if (parsed === undefined) throw new ApiError('UNSUPPORTED_SOURCE', `cannot resolve a repository for "${entry.name}"`)
-  const ref = entry.ref === undefined ? '' : entry.ref
-  const suffix = ref === '' ? '' : `/${encodeURIComponent(ref)}`
-  const url = `${GITHUB_CODELOAD}/${parsed.repo}/tar.gz${suffix}`
+  // codeload only serves a branch-qualified path; an empty suffix answers 404.
+  const ref = typeof entry.ref === 'string' && entry.ref !== '' ? entry.ref : await defaultBranchOf(fetchImpl, parsed.repo)
+  const url = `${GITHUB_CODELOAD}/${parsed.repo}/tar.gz/refs/heads/${encodeURIComponent(ref)}`
   const buffer = await fetchBuffer(fetchImpl, url, githubHeaders())
   return parseTar(gunzipSync(buffer))
 }
