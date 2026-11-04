@@ -880,8 +880,12 @@ window.__ModuleLoader__.load({
         list(signal) {
           return call('list', undefined, signal)
         },
-        read(name, signal) {
-          return call('read', { name: name }, signal)
+        read(name, rootId, signal) {
+          const payload = { name: name }
+          // A shadowed skill shares its name with a higher-ranked one, so the
+          // root the row belongs to is sent along to read that very file.
+          if (rootId !== undefined && rootId !== null) payload.rootId = rootId
+          return call('read', payload, signal)
         },
         write(rootId, name, content, signal) {
           return call('write', { rootId: rootId, name: name, content: content }, signal)
@@ -1699,10 +1703,9 @@ window.__ModuleLoader__.load({
 
       const openDetail = React.useCallback(
         async (skill) => {
-          // `read` only takes a name and returns the first matching root, so a
-          // shadowed duplicate row can receive another root's file. Mutations
-          // (toggle/delete/write) keep the row's own rootId; the mismatch flag
-          // only disables Edit, where writing the wrong body would be unsafe.
+          // The row's own root travels with the read, so a shadowed duplicate
+          // shows its own file and can be edited in place. `mismatch` stays as a
+          // defensive flag for hosts that ignore the rootId hint.
           const rowRoot = findRootInfo(listState.data, skill.rootId)
           const rowWritable =
             rowRoot !== null && rowRoot !== undefined ? rowRoot.writable === true : undefined
@@ -1721,7 +1724,7 @@ window.__ModuleLoader__.load({
             mismatch: false,
           })
           try {
-            const result = await api.read(skill.name, abortRef.current.signal)
+            const result = await api.read(skill.name, skill.rootId, abortRef.current.signal)
             if (!aliveRef.current) return
             const mismatch = result.rootId !== skill.rootId
             setDetailState({

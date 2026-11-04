@@ -142,6 +142,31 @@ test('list groups project and global roots and marks shadowing', async () => {
   })
 })
 
+test('read can address a shadowed skill through its own rootId', async () => {
+  await withSandbox(async ({ call, projectDir, dshHome }) => {
+    await mkdir(join(projectDir, '.dsh', 'skills', 'demo-skill'), { recursive: true })
+    await writeFile(join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md'), SKILL)
+    await mkdir(join(dshHome, 'skills'), { recursive: true })
+    await writeFile(
+      join(dshHome, 'skills', 'demo-skill.md'),
+      SKILL.replace('Body.', 'Global body.'),
+    )
+
+    const winner = await call('read', { name: 'demo-skill' })
+    assert.equal(winner.body.rootId, 'project-dsh')
+    assert.match(winner.body.content, /Body\./)
+
+    const shadowed = await call('read', { name: 'demo-skill', rootId: 'global-dsh' })
+    assert.equal(shadowed.body.ok, true)
+    assert.equal(shadowed.body.rootId, 'global-dsh')
+    assert.equal(shadowed.body.scope, 'global')
+    assert.match(shadowed.body.content, /Global body\./)
+
+    const unknown = await call('read', { name: 'demo-skill', rootId: 'nope' })
+    assert.equal(unknown.body.error.code, 'ROOT_UNKNOWN')
+  })
+})
+
 test('write creates a SKILL.md and read returns it', async () => {
   await withSandbox(async ({ call, projectDir }) => {
     const response = await call('write', { rootId: 'project-dsh', name: 'fresh-skill', content: SKILL.replaceAll('demo-skill', 'fresh-skill') })

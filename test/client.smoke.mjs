@@ -624,13 +624,25 @@ function createHostStub() {
   state.respond = (method, payload) => {
     if (method === 'list') return state.list
     if (method === 'read') {
+      const rootId =
+        typeof payload.rootId === 'string' && payload.rootId !== ''
+          ? payload.rootId
+          : 'project-dsh'
+      const base =
+        rootId === 'project-agents'
+          ? 'D:/proj/.agents/skills'
+          : rootId === 'global-agents'
+            ? 'C:/Users/tester/.agents/skills'
+            : rootId === 'global-dsh'
+              ? 'C:/Users/tester/.dsh/skills'
+              : 'D:/proj/.dsh/skills'
       return {
         ok: true,
         name: payload.name,
-        path: 'D:/proj/.dsh/skills/' + payload.name + '/SKILL.md',
-        rootId: 'project-dsh',
-        scope: 'project',
-        writable: true,
+        path: base + '/' + payload.name + '/SKILL.md',
+        rootId: rootId,
+        scope: rootId.startsWith('project') ? 'project' : 'global',
+        writable: rootId !== 'project-agents' && rootId !== 'global-dsh',
         content: '---\nname: ' + payload.name + '\n---\n\n# ' + payload.name + '\n',
       }
     }
@@ -940,7 +952,7 @@ test('create writes the standard SKILL.md template and opens the editor', async 
   assert.equal(editors[0].props.value, writeCall.body.content)
 })
 
-test('a shadowed row opens a read-only detail and delete targets the row root', async () => {
+test('a shadowed row reads its own file and stays read-only when its root is', async () => {
   const host = createHostStub()
   const { runtime, body, calls } = setup({ responder: host.respond })
 
@@ -950,9 +962,13 @@ test('a shadowed row opens a read-only detail and delete targets the row root', 
   findAllByClass(runtime, 'dps-row')[1].props.onClick()
   await runtime.settle()
 
-  // read() found the same-named file in the winning root, so editing is off.
-  assert.equal(includesText(runtime, 'L:detail.mismatch'), true)
+  // The row's rootId travels with the read, so the duplicate's own body shows.
+  const readCall = calls.find((call) => call.method === 'read')
+  assert.equal(readCall.body.rootId, 'project-agents')
+  assert.equal(includesText(runtime, 'L:detail.mismatch'), false)
+  // Editing is off only because that root is read-only, never because of a mismatch.
   assert.equal(findButton(runtime, 'L:detail.edit').props.disabled, true)
+  assert.equal(includesText(runtime, 'L:root.readonly'), true)
 
   findButton(runtime, 'L:detail.delete').props.onClick()
   await runtime.settle()
@@ -966,6 +982,65 @@ test('a shadowed row opens a read-only detail and delete targets the row root', 
   assert.equal(deleteCall.body.name, 'beta-skill')
   assert.equal(deleteCall.body.rootId, 'project-agents')
   assert.equal(calls.filter((call) => call.method === 'list').length, 2)
+})
+
+test('a shadowed row in a writable root edits in place through its own rootId', async () => {
+  const host = createHostStub()
+  host.list.groups[1].roots.push({
+    id: 'global-agents',
+    source: 'user-agents',
+    path: 'C:/Users/tester/.agents/skills',
+    exists: true,
+    writable: true,
+  })
+  host.list.groups[1].skills.push({
+    name: 'delta-skill',
+    description: 'Delta duplicate',
+    path: 'C:/Users/tester/.agents/skills/delta-skill/SKILL.md',
+    rootId: 'global-agents',
+    source: 'user-agents',
+    rank: 500,
+    modelInvocable: true,
+    userInvocable: true,
+    shadowed: true,
+    shadowedBy: {
+      rootId: 'global-dsh',
+      path: 'C:/Users/tester/.dsh/skills/delta-skill/SKILL.md',
+      name: 'delta-skill',
+    },
+  })
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  // Rows: alpha, beta (project) then delta (global).
+  const rows = findAllByClass(runtime, 'dps-row')
+  assert.equal(rows.length, 3)
+  rows[2].props.onClick()
+  await runtime.settle()
+
+  const readCall = calls.find((call) => call.method === 'read')
+  assert.equal(readCall.body.name, 'delta-skill')
+  assert.equal(readCall.body.rootId, 'global-agents')
+  assert.equal(includesText(runtime, 'L:detail.mismatch'), false)
+
+  const editButton = findButton(runtime, 'L:detail.edit')
+  assert.notEqual(editButton.props.disabled, true)
+  editButton.props.onClick()
+  await runtime.settle()
+
+  findAllByClass(runtime, 'dps-editor')[0].props.onChange({ target: { value: 'delta body' } })
+  await runtime.settle()
+  findButton(runtime, 'L:edit.save').props.onClick()
+  await runtime.settle()
+
+  const writeCall = calls.find(
+    (call) => call.method === 'write' && call.body.content === 'delta body',
+  )
+  assert.ok(writeCall !== undefined)
+  assert.equal(writeCall.body.name, 'delta-skill')
+  assert.equal(writeCall.body.rootId, 'global-agents')
 })
 
 test('host errors are shown in the panel instead of escaping the render', async () => {

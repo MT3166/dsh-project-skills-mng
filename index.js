@@ -540,7 +540,11 @@ function createApi(ctx) {
       const resolved = await session(payload)
       const roots = await describeRoots(resolved.projectRoot)
       const name = validateSkillName(payload?.name)
-      for (const root of roots) {
+      // A shadowed skill shares its name with a higher-ranked one. Callers that
+      // already know the row they clicked pass `rootId` so the shadowed file
+      // itself is read instead of the winner.
+      const scope = payload?.rootId === undefined || payload?.rootId === null ? roots : [findRoot(roots, payload.rootId)]
+      for (const root of scope) {
         if (!root.exists) continue
         const rootReal = await realpath(root.path).catch(() => undefined)
         if (rootReal === undefined) continue
