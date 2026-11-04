@@ -1,0 +1,987 @@
+/**
+ * Smoke test for the client half of dsh-project-skills.
+ *
+ * The plugin is a browser script with no build step: it talks to the module
+ * table (`window.__ModuleLoader__`) at load time and receives its framework
+ * services through `apply(ctx)`. This test therefore runs the real `client.js`
+ * source inside a `node:vm` sandbox with:
+ *   - a fake `window.__ModuleLoader__` that captures the module spec,
+ *   - a tiny React runtime (element builder, hook store, one-shot scheduler,
+ *     synchronous effects) so the panel can actually mount, fetch, click and
+ *     re-render,
+ *   - a fake `document` that records the injected stylesheet,
+ *   - a fake Cordis context that records every registration,
+ *   - a fake `fetch` that answers the host API envelope without any I/O.
+ *
+ * Nothing outside the sandbox is touched.
+ */
+
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import vm from 'node:vm'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const CLIENT_PATH = join(HERE, '..', 'client.js')
+const SOURCE = readFileSync(CLIENT_PATH, 'utf8')
+
+const NAMESPACE = 'dsh-project-skills'
+const TAB_ID = 'dsh-project-skills/skills'
+const PANE_SLOT = 'sidebar.right.pane.tab'
+const PAGE_BASE = 'https://desk.example/app/'
+
+/* ---------------------------------------------------------------------- *
+ * Tiny React runtime                                                     *
+ * ---------------------------------------------------------------------- */
+
+function depsEqual(previous, next) {
+  if (previous === next) return true
+  if (!Array.isArray(previous) || !Array.isArray(next)) return false
+  if (previous.length !== next.length) return false
+  for (let index = 0; index < previous.length; index += 1) {
+    if (!Object.is(previous[index], next[index])) return false
+  }
+  return true
+}
+
+function createRuntime() {
+  const instances = new Map()
+  let activeInstance = null
+  let rootElement = null
+  let needsRender = false
+  let lastNodes = []
+  let renderedInstances = []
+
+  function requireInstance(hookName) {
+    if (activeInstance === null) {
+      throw new Error(hookName + ' called outside of a component render')
+    }
+    return activeInstance
+  }
+
+  function makeSetter(instance, index) {
+    return (nextValue) => {
+      const previous = instance.hooks[index]
+      const value = typeof nextValue === 'function' ? nextValue(previous) : nextValue
+      if (Object.is(previous, value)) return
+      instance.hooks[index] = value
+      needsRender = true
+    }
+  }
+
+  const React = {
+    Fragment: Symbol('react.fragment'),
+
+    createElement(type, props, ...children) {
+      const normalized = props === null || props === undefined ? {} : { ...props }
+      if (children.length === 1) normalized.children = children[0]
+      else if (children.length > 1) normalized.children = children
+      return { $$element: true, type, props: normalized }
+    },
+
+    useState(initialValue) {
+      const instance = requireInstance('useState')
+      const index = instance.cursor++
+      if (!Object.prototype.hasOwnProperty.call(instance.hooks, index)) {
+        instance.hooks[index] =
+          typeof initialValue === 'function' ? initialValue() : initialValue
+      }
+      return [instance.hooks[index], makeSetter(instance, index)]
+    },
+
+    useReducer(reducer, initialArg) {
+      const instance = requireInstance('useReducer')
+      const index = instance.cursor++
+      if (!Object.prototype.hasOwnProperty.call(instance.hooks, index)) {
+        instance.hooks[index] =
+          typeof initialArg === 'function' ? initialArg() : initialArg
+      }
+      return [
+        instance.hooks[index],
+        (action) => {
+          const nextValue = reducer(instance.hooks[index], action)
+          if (Object.is(nextValue, instance.hooks[index])) return
+          instance.hooks[index] = nextValue
+          needsRender = true
+        },
+      ]
+    },
+
+    useEffect(effect, deps) {
+      const instance = requireInstance('useEffect')
+      const index = instance.cursor++
+      if (
+        deps !== undefined &&
+        instance.deps[index] !== undefined &&
+        depsEqual(instance.deps[index], deps)
+      ) {
+        return
+      }
+      instance.deps[index] = deps
+      instance.effectQueue.push({ index, effect })
+    },
+
+    useLayoutEffect() {
+      requireInstance('useLayoutEffect').cursor += 1
+    },
+
+    useMemo(factory, deps) {
+      const instance = requireInstance('useMemo')
+      const index = instance.cursor++
+      const memo = instance.memo
+      if (deps !== undefined && memo[index] !== undefined && depsEqual(memo[index].deps, deps)) {
+        return memo[index].value
+      }
+      const value = factory()
+      memo[index] = { deps, value }
+      return value
+    },
+
+    useCallback(callback, deps) {
+      const instance = requireInstance('useCallback')
+      const index = instance.cursor++
+      const memo = instance.memo
+      if (deps !== undefined && memo[index] !== undefined && depsEqual(memo[index].deps, deps)) {
+        return memo[index].value
+      }
+      memo[index] = { deps, value: callback }
+      return callback
+    },
+
+    useRef(initialValue) {
+      const instance = requireInstance('useRef')
+      const index = instance.cursor++
+      if (!Object.prototype.hasOwnProperty.call(instance.hooks, index)) {
+        instance.hooks[index] = { current: initialValue }
+      }
+      return instance.hooks[index]
+    },
+
+    useSyncExternalStore(_subscribe, getSnapshot) {
+      requireInstance('useSyncExternalStore').cursor += 1
+      return getSnapshot()
+    },
+  }
+
+  function instanceFor(key, type) {
+    let instance = instances.get(key)
+    if (instance === undefined || instance.type !== type) {
+      if (instance !== undefined) cleanupInstance(instance)
+      instance = {
+        key,
+        type,
+        hooks: {},
+        deps: {},
+        memo: {},
+        cursor: 0,
+        effectQueue: [],
+        cleanups: {},
+      }
+      instances.set(key, instance)
+    }
+    return instance
+  }
+
+  function cleanupInstance(instance) {
+    for (const index of Object.keys(instance.cleanups)) {
+      const cleanup = instance.cleanups[index]
+      if (typeof cleanup === 'function') {
+        try {
+          cleanup()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+    }
+    instance.cleanups = {}
+  }
+
+  function invoke(type, props, key) {
+    const instance = instanceFor(key, type)
+    instance.cursor = 0
+    instance.effectQueue = []
+    renderedInstances.push(instance)
+    const previous = activeInstance
+    activeInstance = instance
+    try {
+      return type(props)
+    } finally {
+      activeInstance = previous
+    }
+  }
+
+  function runEffects(instance) {
+    for (const entry of instance.effectQueue) {
+      const cleanup = instance.cleanups[entry.index]
+      if (typeof cleanup === 'function') {
+        try {
+          cleanup()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+      delete instance.cleanups[entry.index]
+      const result = entry.effect()
+      if (typeof result === 'function') instance.cleanups[entry.index] = result
+    }
+    instance.effectQueue = []
+  }
+
+  function build(node, key, out) {
+    if (node === null || node === undefined || typeof node === 'boolean') return
+    if (typeof node === 'string' || typeof node === 'number') {
+      out.push({ kind: 'text', text: String(node) })
+      return
+    }
+    if (Array.isArray(node)) {
+      node.forEach((child, index) => build(child, key + '/' + index, out))
+      return
+    }
+    if (typeof node !== 'object') return
+    if (typeof node.type === 'function') {
+      const output = invoke(node.type, node.props, key)
+      build(output, key + '/out', out)
+      return
+    }
+    if (node.type === React.Fragment) {
+      build(node.props.children, key + '/c', out)
+      return
+    }
+    const host = { kind: 'host', type: String(node.type), props: node.props, children: [] }
+    out.push(host)
+    build(node.props.children, key + '/c', host.children)
+  }
+
+  function renderPass() {
+    renderedInstances = []
+    const nodes = []
+    build(rootElement, 'root', nodes)
+    lastNodes = nodes
+    for (const instance of renderedInstances) runEffects(instance)
+  }
+
+  function flush() {
+    let guard = 0
+    do {
+      needsRender = false
+      renderPass()
+      guard += 1
+      if (guard > 100) throw new Error('the render loop did not settle')
+    } while (needsRender)
+  }
+
+  function mount(element) {
+    rootElement = element
+    needsRender = true
+    flush()
+  }
+
+  async function settle() {
+    flush()
+    for (let round = 0; round < 100; round += 1) {
+      await new Promise((resolve) => setImmediate(resolve))
+      if (!needsRender) return
+      flush()
+    }
+    throw new Error('the async render loop did not settle')
+  }
+
+  return {
+    React,
+    mount,
+    settle,
+    nodes() {
+      return lastNodes
+    },
+  }
+}
+
+/* ---------------------------------------------------------------------- *
+ * DOM-ish helpers over the rendered node tree                            *
+ * ---------------------------------------------------------------------- */
+
+function walkNodes(nodes, visit) {
+  for (const node of Array.isArray(nodes) ? nodes : [nodes]) {
+    if (node === undefined || node === null) continue
+    visit(node)
+    if (node.kind === 'host') walkNodes(node.children, visit)
+  }
+}
+
+function textOf(node) {
+  if (node === undefined || node === null) return ''
+  if (node.kind === 'text') return node.text
+  if (node.kind !== 'host') return ''
+  return node.children.map(textOf).join('')
+}
+
+function hasClass(node, className) {
+  if (node === undefined || node === null || node.kind !== 'host') return false
+  const value = node.props.className
+  if (typeof value !== 'string') return false
+  return value.split(/\s+/).includes(className)
+}
+
+function findAll(runtime, predicate) {
+  const found = []
+  walkNodes(runtime.nodes(), (node) => {
+    if (predicate(node)) found.push(node)
+  })
+  return found
+}
+
+function findAllByClass(runtime, className) {
+  return findAll(runtime, (node) => hasClass(node, className))
+}
+
+function findButton(runtime, label) {
+  const buttons = findAll(
+    runtime,
+    (node) => node.kind === 'host' && node.type === 'button' && textOf(node) === label,
+  )
+  assert.ok(buttons.length > 0, 'expected a button labelled "' + label + '"')
+  return buttons[0]
+}
+
+function findAllByText(runtime, text) {
+  return findAll(runtime, (node) => node.kind === 'host' && textOf(node) === text)
+}
+
+function includesText(runtime, fragment) {
+  let found = false
+  walkNodes(runtime.nodes(), (node) => {
+    if (!found && node.kind === 'host' && textOf(node).includes(fragment)) found = true
+  })
+  return found
+}
+
+/* ---------------------------------------------------------------------- *
+ * Fake document                                                          *
+ * ---------------------------------------------------------------------- */
+
+function createDocumentStub() {
+  const head = {
+    children: [],
+    appendChild(node) {
+      node.parentNode = head
+      head.children.push(node)
+      return node
+    },
+    removeChild(node) {
+      const index = head.children.indexOf(node)
+      if (index >= 0) head.children.splice(index, 1)
+      node.parentNode = null
+      return node
+    },
+  }
+
+  return {
+    baseURI: PAGE_BASE,
+    head,
+    createElement(tagName) {
+      const element = {
+        tagName: String(tagName).toUpperCase(),
+        attributes: {},
+        parentNode: null,
+        textContent: '',
+        setAttribute(name, value) {
+          element.attributes[String(name)] = String(value)
+        },
+        getAttribute(name) {
+          const value = element.attributes[String(name)]
+          return value === undefined ? null : value
+        },
+        removeAttribute(name) {
+          delete element.attributes[String(name)]
+        },
+        remove() {
+          if (element.parentNode !== null) element.parentNode.removeChild(element)
+        },
+      }
+      return element
+    },
+    querySelector() {
+      return null
+    },
+  }
+}
+
+/* ---------------------------------------------------------------------- *
+ * Fake Cordis context                                                    *
+ * ---------------------------------------------------------------------- */
+
+function createCtx() {
+  const env = {
+    effectLabels: [],
+    disposers: [],
+    tabDefinition: null,
+    slotRegistrations: [],
+    slotInjects: [],
+    localeRegistrations: [],
+  }
+
+  const ctx = {
+    effect(callback, label) {
+      env.effectLabels.push(String(label))
+      const dispose = callback()
+      env.disposers.push(typeof dispose === 'function' ? dispose : () => {})
+      return () => {}
+    },
+    slots: {
+      inject(name, callback) {
+        env.slotInjects.push(name)
+        const dispose = callback()
+        if (typeof dispose === 'function') env.disposers.push(dispose)
+        return () => {}
+      },
+      register(definition, component) {
+        env.slotRegistrations.push({ definition, component })
+        return () => {}
+      },
+    },
+    locale: {
+      register(ns, language, dictionary) {
+        env.localeRegistrations.push({ ns, language, dictionary })
+        return () => {}
+      },
+      bind(ns) {
+        return (key) => '[' + ns + ']' + key
+      },
+    },
+    sidebarRightTabs: {
+      register(definition) {
+        env.tabDefinition = definition
+        return () => {}
+      },
+    },
+  }
+
+  return { env, ctx }
+}
+
+/* ---------------------------------------------------------------------- *
+ * Module setup                                                           *
+ * ---------------------------------------------------------------------- */
+
+function setup(options = {}) {
+  const runtime = createRuntime()
+  const documentStub = createDocumentStub()
+  const calls = []
+  const captured = {}
+
+  const sandbox = {
+    console,
+    document: documentStub,
+    URL,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+    fetch: async (url, init) => {
+      const requestUrl = String(url)
+      const marker = '/dsh-project-skills/api/'
+      const at = requestUrl.indexOf(marker)
+      const method = at >= 0 ? requestUrl.slice(at + marker.length) : ''
+      let parsed = null
+      try {
+        parsed = JSON.parse(init.body)
+      } catch (error) {
+        parsed = null
+      }
+      calls.push({ url: requestUrl, method, body: parsed })
+      if (typeof options.responder !== 'function') {
+        throw new Error('unexpected fetch: ' + requestUrl)
+      }
+      const payload = options.responder(method, parsed)
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return payload
+        },
+      }
+    },
+    window: {
+      __ModuleLoader__: {
+        load(spec) {
+          captured.spec = spec
+          captured.module = spec.factory((specifier) => {
+            if (specifier === 'react') return runtime.React
+            throw new Error('unexpected require: ' + String(specifier))
+          })
+        },
+      },
+    },
+  }
+  sandbox.globalThis = sandbox
+
+  vm.runInNewContext(SOURCE, sandbox, { filename: CLIENT_PATH })
+
+  assert.ok(captured.spec, 'window.__ModuleLoader__.load was called')
+  const { env, ctx } = createCtx()
+  captured.module.apply(ctx)
+
+  const body = env.slotRegistrations[0] !== undefined
+    ? env.slotRegistrations[0].component
+    : undefined
+
+  return {
+    runtime,
+    documentStub,
+    calls,
+    env,
+    plugin: captured.module,
+    spec: captured.spec,
+    body,
+  }
+}
+
+/* ---------------------------------------------------------------------- *
+ * Host stub                                                              *
+ * ---------------------------------------------------------------------- */
+
+function createHostStub() {
+  const state = {
+    list: {
+      ok: true,
+      cwd: 'D:/proj',
+      projectRoot: 'D:/proj',
+      counts: { project: 2, global: 1, total: 3, shadowed: 1, broken: 1 },
+      groups: [
+        {
+          scope: 'project',
+          roots: [
+            {
+              id: 'project-dsh',
+              source: 'project-dsh',
+              path: 'D:/proj/.dsh/skills',
+              exists: true,
+              writable: true,
+            },
+            {
+              id: 'project-agents',
+              source: 'project-agents',
+              path: 'D:/proj/.agents/skills',
+              exists: false,
+              writable: false,
+            },
+          ],
+          skills: [
+            {
+              name: 'alpha-skill',
+              description: 'Alpha does things',
+              path: 'D:/proj/.dsh/skills/alpha-skill/SKILL.md',
+              rootId: 'project-dsh',
+              source: 'project-dsh',
+              rank: 100,
+              modelInvocable: true,
+              userInvocable: false,
+              shadowed: false,
+            },
+            {
+              name: 'beta-skill',
+              description: 'Beta duplicate',
+              path: 'D:/proj/.agents/skills/beta-skill/SKILL.md',
+              rootId: 'project-agents',
+              source: 'project-agents',
+              rank: 200,
+              modelInvocable: true,
+              userInvocable: true,
+              shadowed: true,
+              shadowedBy: {
+                rootId: 'project-dsh',
+                path: 'D:/proj/.dsh/skills/beta-skill/SKILL.md',
+                name: 'beta-skill',
+              },
+            },
+          ],
+        },
+        {
+          scope: 'global',
+          roots: [
+            {
+              id: 'global-dsh',
+              source: 'user-dsh',
+              path: 'C:/Users/tester/.dsh/skills',
+              exists: true,
+              writable: false,
+            },
+          ],
+          skills: [],
+        },
+      ],
+      errors: [
+        {
+          rootId: 'project-dsh',
+          path: 'D:/proj/.dsh/skills/broken-skill/SKILL.md',
+          message: 'missing description',
+        },
+      ],
+    },
+  }
+
+  state.respond = (method, payload) => {
+    if (method === 'list') return state.list
+    if (method === 'read') {
+      return {
+        ok: true,
+        name: payload.name,
+        path: 'D:/proj/.dsh/skills/' + payload.name + '/SKILL.md',
+        rootId: 'project-dsh',
+        scope: 'project',
+        writable: true,
+        content: '---\nname: ' + payload.name + '\n---\n\n# ' + payload.name + '\n',
+      }
+    }
+    if (method === 'write') {
+      return {
+        ok: true,
+        name: payload.name,
+        rootId: payload.rootId,
+        path: 'D:/proj/.dsh/skills/' + payload.name + '/SKILL.md',
+        created: true,
+      }
+    }
+    if (method === 'delete') {
+      return {
+        ok: true,
+        name: payload.name,
+        rootId: payload.rootId,
+        path: 'D:/proj/.dsh/skills/' + payload.name + '/SKILL.md',
+        deleted: true,
+      }
+    }
+    if (method === 'toggle') {
+      return {
+        ok: true,
+        name: payload.name,
+        path: 'D:/proj/.dsh/skills/' + payload.name + '/SKILL.md',
+        rootId: payload.rootId,
+        modelInvocable: payload.field === 'model' ? payload.value : true,
+        userInvocable: payload.field === 'user' ? payload.value : true,
+        content: 'toggled: ' + payload.field + '=' + String(payload.value),
+      }
+    }
+    return { ok: false, error: { code: 'NOT_FOUND', message: 'no stub for ' + method } }
+  }
+
+  return state
+}
+
+function panelProps(overrides = {}) {
+  return {
+    sessionId: 'session-1',
+    t: (key) => 'L:' + key,
+    ...overrides,
+  }
+}
+
+/* ---------------------------------------------------------------------- *
+ * Static registration tests                                              *
+ * ---------------------------------------------------------------------- */
+
+test('client.js loads through the module table as a client plugin', () => {
+  const { spec, plugin } = setup()
+
+  assert.equal(spec.id, NAMESPACE)
+  assert.ok(plugin !== null && typeof plugin === 'object', 'factory returned the plugin')
+  assert.equal(typeof plugin.apply, 'function')
+  assert.ok(Array.isArray(plugin.inject), 'inject is a service list')
+  for (const service of ['slots', 'locale', 'sidebarRightTabs']) {
+    assert.ok(plugin.inject.includes(service), 'inject must list ' + service)
+  }
+})
+
+test('apply registers the tab type, guide entry and pane body', () => {
+  const { env, spec } = setup()
+
+  assert.equal(spec.id, NAMESPACE)
+
+  const tab = env.tabDefinition
+  assert.ok(tab !== null, 'sidebarRightTabs.register was called')
+  assert.equal(tab.id, TAB_ID)
+  assert.equal(tab.kind, TAB_ID)
+  assert.equal(typeof tab.title, 'function')
+  assert.equal(typeof tab.title('dsh-project-skills://skills'), 'string')
+
+  assert.ok(Array.isArray(tab.guide) && tab.guide.length > 0, 'guide must not be empty')
+  const guide = tab.guide[0]
+  assert.ok(typeof guide.id === 'string' && guide.id !== '', 'guide entry has a unique id')
+  assert.equal(typeof guide.title, 'function')
+  assert.equal(typeof guide.title(), 'string')
+  assert.equal(typeof guide.order, 'number')
+  // The shipped guide body calls `entry.description?.()`, so a guide description
+  // must be a zero-arg function returning the text (a plain string crashes).
+  assert.equal(typeof guide.description, 'function')
+  assert.equal(typeof guide.description(), 'string')
+  assert.ok(guide.description().length > 0)
+
+  assert.deepEqual(env.slotInjects, [PANE_SLOT])
+  const body = env.slotRegistrations.find((entry) => entry.definition.name === PANE_SLOT)
+  assert.ok(body !== undefined, 'the pane body was registered on ' + PANE_SLOT)
+  assert.equal(body.definition.key, TAB_ID)
+  assert.equal(typeof body.component, 'function')
+  assert.equal(body.definition.locale, NAMESPACE)
+  assert.equal(typeof body.definition.inject, 'function')
+
+  const injected = body.definition.inject('session-42')
+  assert.equal(injected.sessionId, 'session-42')
+  assert.equal(typeof injected.translate, 'function')
+  assert.equal(typeof injected.translate('list.title'), 'string')
+
+  assert.deepEqual(
+    env.localeRegistrations.map((entry) => entry.language).sort(),
+    ['en', 'zh'],
+  )
+  for (const entry of env.localeRegistrations) {
+    assert.equal(entry.ns, NAMESPACE)
+    assert.equal(typeof entry.dictionary, 'object')
+  }
+})
+
+test('zh and en dictionaries have identical keys and non-empty strings', () => {
+  const { env } = setup()
+
+  const zh = env.localeRegistrations.find((entry) => entry.language === 'zh')
+  const en = env.localeRegistrations.find((entry) => entry.language === 'en')
+  assert.ok(zh !== undefined && en !== undefined)
+
+  const zhKeys = Object.keys(zh.dictionary).sort()
+  const enKeys = Object.keys(en.dictionary).sort()
+  assert.deepEqual(enKeys, zhKeys)
+
+  for (const key of zhKeys) {
+    assert.equal(typeof zh.dictionary[key], 'string', 'zh[' + key + '] is a string')
+    assert.equal(typeof en.dictionary[key], 'string', 'en[' + key + '] is a string')
+    assert.ok(zh.dictionary[key].length > 0, 'zh[' + key + '] is not empty')
+    assert.ok(en.dictionary[key].length > 0, 'en[' + key + '] is not empty')
+  }
+})
+
+test('the scoped stylesheet is injected and removed on dispose', () => {
+  const { env, documentStub } = setup()
+
+  assert.equal(documentStub.head.children.length, 1, 'exactly one style tag was injected')
+  const tag = documentStub.head.children[0]
+  assert.equal(tag.tagName, 'STYLE')
+  assert.notEqual(tag.getAttribute('data-dsh-project-skills'), null)
+  assert.equal(tag.getAttribute('data-plugin-css'), NAMESPACE)
+  assert.ok(tag.textContent.includes('.dps-root'), 'styles are scoped under .dps-')
+
+  for (const dispose of env.disposers) dispose()
+  assert.equal(documentStub.head.children.length, 0, 'style tag was removed on dispose')
+})
+
+/* ---------------------------------------------------------------------- *
+ * Panel rendering / interaction tests                                    *
+ * ---------------------------------------------------------------------- */
+
+test('without a session id the panel renders an empty state and does not call the host', async () => {
+  const host = createHostStub()
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, { t: (key) => 'L:' + key }))
+  await runtime.settle()
+
+  assert.equal(includesText(runtime, 'L:session.required'), true)
+  assert.equal(calls.length, 0, 'no HTTP call is made without a session id')
+})
+
+test('the list requests the relative API URL and renders roots, rows and warnings', async () => {
+  const host = createHostStub()
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].method, 'list')
+  assert.equal(calls[0].url, PAGE_BASE + 'dsh-project-skills/api/list')
+  assert.equal(calls[0].body.sessionId, 'session-1')
+
+  const rows = findAllByClass(runtime, 'dps-row')
+  assert.equal(rows.length, 2)
+  assert.ok(textOf(rows[0]).includes('alpha-skill'))
+  assert.ok(textOf(rows[0]).includes('Alpha does things'))
+  assert.ok(textOf(rows[1]).includes('beta-skill'))
+  assert.ok(textOf(rows[1]).includes('L:shadowed.by'))
+
+  // Three roots across the two groups, one of them missing + read-only.
+  const rootLines = findAllByClass(runtime, 'dps-root-line')
+  assert.equal(rootLines.length, 3)
+  assert.ok(textOf(rootLines[1]).includes('L:root.missing'))
+  assert.ok(textOf(rootLines[1]).includes('L:root.readonly'))
+
+  // Broken SKILL.md entries show up as a collapsible warning bar.
+  assert.equal(findAllByClass(runtime, 'dps-warn').length, 1)
+  assert.equal(findAllByClass(runtime, 'dps-warn-list').length, 0, 'collapsed by default')
+  findButton(runtime, 'L:warning.expand').props.onClick()
+  await runtime.settle()
+  assert.equal(findAllByClass(runtime, 'dps-warn-list').length, 1)
+  assert.equal(includesText(runtime, 'broken-skill/SKILL.md'), true)
+
+  // Empty group hint.
+  assert.equal(includesText(runtime, 'L:group.empty'), true)
+})
+
+test('row → detail → toggle → edit → save drives the full round trip', async () => {
+  const host = createHostStub()
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+
+  const readCall = calls.find((call) => call.method === 'read')
+  assert.ok(readCall !== undefined)
+  assert.equal(readCall.body.name, 'alpha-skill')
+  assert.equal(readCall.body.sessionId, 'session-1')
+  assert.equal(includesText(runtime, 'alpha-skill'), true)
+  assert.equal(findAllByClass(runtime, 'dps-body').length, 1)
+  assert.equal(includesText(runtime, 'L:detail.content'), true)
+  assert.equal(includesText(runtime, 'name: alpha-skill'), true)
+
+  // Two invocability switches, model on / user off for alpha.
+  const switches = findAllByClass(runtime, 'dps-switch')
+  assert.equal(switches.length, 2)
+  assert.equal(switches[0].props['data-on'], 'true')
+  assert.equal(switches[1].props['data-on'], 'false')
+
+  switches[0].props.onClick()
+  await runtime.settle()
+
+  const toggleCall = calls.find((call) => call.method === 'toggle')
+  assert.ok(toggleCall !== undefined)
+  assert.deepEqual(toggleCall.body, {
+    rootId: 'project-dsh',
+    name: 'alpha-skill',
+    field: 'model',
+    value: false,
+    sessionId: 'session-1',
+  })
+  assert.equal(includesText(runtime, 'toggled: model=false'), true)
+
+  const editButton = findButton(runtime, 'L:detail.edit')
+  assert.notEqual(editButton.props.disabled, true)
+  editButton.props.onClick()
+  await runtime.settle()
+
+  const editors = findAllByClass(runtime, 'dps-editor')
+  assert.equal(editors.length, 1)
+  assert.equal(typeof editors[0].props.value, 'string')
+  // The toggle above rewrote the file, so the editor starts from that content.
+  assert.equal(editors[0].props.value, 'toggled: model=false')
+
+  editors[0].props.onChange({ target: { value: 'edited content' } })
+  await runtime.settle()
+  findButton(runtime, 'L:edit.save').props.onClick()
+  await runtime.settle()
+
+  const writeCall = calls.find(
+    (call) => call.method === 'write' && call.body.content === 'edited content',
+  )
+  assert.ok(writeCall !== undefined)
+  assert.equal(writeCall.body.name, 'alpha-skill')
+  assert.equal(writeCall.body.rootId, 'project-dsh')
+
+  // Saving returns to the list and refreshes it.
+  assert.equal(findAllByClass(runtime, 'dps-row').length, 2)
+  assert.equal(calls.filter((call) => call.method === 'list').length, 2)
+})
+
+test('create writes the standard SKILL.md template and opens the editor', async () => {
+  const host = createHostStub()
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  findButton(runtime, 'L:list.new').props.onClick()
+  await runtime.settle()
+
+  // Only writable roots are offered (project-dsh).
+  const selects = findAllByClass(runtime, 'dps-select')
+  assert.equal(selects.length, 1)
+  const options = selects[0].props.children
+  assert.ok(Array.isArray(options))
+  assert.equal(options.length, 1)
+  assert.equal(options[0].props.value, 'project-dsh')
+  assert.equal(selects[0].props.value, 'project-dsh')
+
+  // Submit stays disabled until the form is valid.
+  assert.equal(findButton(runtime, 'L:create.submit').props.disabled, true)
+
+  const inputs = findAllByClass(runtime, 'dps-input')
+  assert.equal(inputs.length, 2)
+  inputs[0].props.onChange({ target: { value: 'gamma-skill' } })
+  await runtime.settle()
+  const inputsAfterRename = findAllByClass(runtime, 'dps-input')
+  inputsAfterRename[1].props.onChange({ target: { value: 'Gamma does things' } })
+  await runtime.settle()
+
+  findButton(runtime, 'L:create.submit').props.onClick()
+  await runtime.settle()
+
+  const writeCall = calls.find((call) => call.method === 'write')
+  assert.ok(writeCall !== undefined)
+  assert.equal(writeCall.body.rootId, 'project-dsh')
+  assert.equal(writeCall.body.name, 'gamma-skill')
+  assert.ok(writeCall.body.content.startsWith('---\nname: gamma-skill\n'))
+  assert.ok(writeCall.body.content.includes('description: Gamma does things\n'))
+  assert.ok(writeCall.body.content.includes('# Gamma Skill\n'))
+  assert.ok(writeCall.body.content.includes('<describe what this skill does and when to use it>'))
+
+  // Creation lands in the editor with the generated template.
+  const editors = findAllByClass(runtime, 'dps-editor')
+  assert.equal(editors.length, 1)
+  assert.equal(editors[0].props.value, writeCall.body.content)
+})
+
+test('a shadowed row opens a read-only detail and delete targets the row root', async () => {
+  const host = createHostStub()
+  const { runtime, body, calls } = setup({ responder: host.respond })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  findAllByClass(runtime, 'dps-row')[1].props.onClick()
+  await runtime.settle()
+
+  // read() found the same-named file in the winning root, so editing is off.
+  assert.equal(includesText(runtime, 'L:detail.mismatch'), true)
+  assert.equal(findButton(runtime, 'L:detail.edit').props.disabled, true)
+
+  findButton(runtime, 'L:detail.delete').props.onClick()
+  await runtime.settle()
+  assert.equal(includesText(runtime, 'L:confirm.delete'), true)
+
+  findButton(runtime, 'L:confirm.deleteYes').props.onClick()
+  await runtime.settle()
+
+  const deleteCall = calls.find((call) => call.method === 'delete')
+  assert.ok(deleteCall !== undefined)
+  assert.equal(deleteCall.body.name, 'beta-skill')
+  assert.equal(deleteCall.body.rootId, 'project-agents')
+  assert.equal(calls.filter((call) => call.method === 'list').length, 2)
+})
+
+test('host errors are shown in the panel instead of escaping the render', async () => {
+  const { runtime, body } = setup({
+    responder: (method) => {
+      if (method === 'list') {
+        return { ok: false, error: { code: 'INTERNAL', message: 'boom' } }
+      }
+      return { ok: false, error: { code: 'NOT_FOUND', message: 'no stub' } }
+    },
+  })
+
+  runtime.mount(runtime.React.createElement(body, panelProps()))
+  await runtime.settle()
+
+  assert.equal(includesText(runtime, 'L:error.title'), true)
+  assert.equal(includesText(runtime, 'INTERNAL'), true)
+  assert.equal(includesText(runtime, 'boom'), true)
+})

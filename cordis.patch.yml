@@ -1,0 +1,6 @@
+# dsh-project-skills bundle patch.
+# The bundle contributes one host row; the client half of the same package
+# registers the right-sidebar tab type and its body.
+- insert:
+    - id: dsh-project-skills
+      name: 'dsh-project-skills'
