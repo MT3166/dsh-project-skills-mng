@@ -1,5 +1,8 @@
 # dsh-project-skills Implementation Plan
 
+> **历史记录：** 本计划撰写时的包名为 `dsh-project-skills`；2026-11-04 起插件标识统一为
+> `dsh-project-skills-mng`（仓库同名），文中旧名与旧路由均为历史记录，现行标识见代码。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans (the Lead executes this plan natively).
 
 **Goal:** 给 DSH 增加一个右栏 Skills 管理面板：浏览当前会话/项目生效的项目级与全局技能，并新建、编辑、删除、切换可调用性。
@@ -103,3 +106,10 @@ sessionId 缺失或会话不存在时返回 `{ ok:false, error:{ code:'SESSION_N
 - Task 2（Client）done：`client.js` 2147 行；`test/client.smoke.mjs` 10/10；guide entry `order: 10`，`title`/`description` 均为零参函数（guide body 实际调用 `entry.title()` / `entry.description?.()`，写成字符串会让 guide 页崩溃——已修）。
 - Task 3（安装/验证）done：`install_bundle` → `application: applied`；pane 槽 occupant `dsh-project-skills/skills` active；`Tool.listTools` 含 `skills_manage`；`test/probe.mjs` 在真实全局技能目录上得到 counts `{project:1, global:44, total:45, shadowed:20, broken:0}`；用户在真实 GUI 中确认 guide 卡片「项目管理技能」与面板 Project/Global 分组正常。
 - 未做：`fixtures/demo-project` 独立示例工程（改用仓库内 `.dsh/skills/demo-skill` 实测，模型 catalog 已可见该技能）。
+
+## Status (2026-11-04 15:05) — 四级发现顺序
+
+- 面板不再按「Project / Global」二分，而是复刻 DSH 的四根与 rank：项目 `.dsh/skills`(100)、项目 `.agents/skills`(200)、全局 `~/.dsh/skills`(400)、全局 `~/.agents/skills`(500)，每层一个可折叠分组，组头显示条目数与优先级数字。
+- Host `list` 返回值从 `groups[]`（2 组，每组 `roots[]`）改为 `tiers[]`（4 组，每组即一个根，带 `rank/scope/id/rootId/path/exists/writable/skills[]`）；`markShadowing` 不变（仍按 rank 全局排序，rank 小者胜）。
+- Client：`patchListSkill`/`writableRoots`/`findRootInfo` 读 `tiers`；组头改为「caret + 层名 + 条目数 + spacer + 优先级 chip」；路径行只在层缺失/只读时出现（健康层保持安静）；列表行去掉来源徽章（层已表达来源），保留 M/U 与「链接」徽章。
+- 测试：host 12/12、client 12/12；`test/preview.mjs` 的 mock 同步改四层，`list-light/empty-light/list-dark` 截图复核通过。

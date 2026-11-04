@@ -12,7 +12,7 @@ import { symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const API = '/dsh-project-skills/api/'
+const API = '/dsh-project-skills-mng/api/'
 
 function createHost({ projectDir }) {
   let handler
@@ -91,7 +91,7 @@ Body.
 `
 
 async function withSandbox(run) {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-project-skills-'))
+  const root = await mkdtemp(join(tmpdir(), 'dsh-project-skills-mng-'))
   const projectDir = join(root, 'project')
   const dshHome = join(root, 'dsh-home')
   const agentsHome = join(root, 'agents-home')
@@ -115,7 +115,7 @@ async function withSandbox(run) {
   }
 }
 
-test('list groups project and global roots and marks shadowing', async () => {
+test('list returns one tier per DSH root and marks shadowing', async () => {
   await withSandbox(async ({ call, projectDir, dshHome }) => {
     await mkdir(join(projectDir, '.dsh', 'skills', 'demo-skill'), { recursive: true })
     await writeFile(join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md'), SKILL)
@@ -130,9 +130,24 @@ test('list groups project and global roots and marks shadowing', async () => {
     assert.equal(body.projectRoot, projectDir)
     assert.deepEqual(body.counts, { project: 1, global: 2, total: 3, shadowed: 1, broken: 0 })
 
-    const project = body.groups[0]
-    const global = body.groups[1]
-    assert.equal(project.scope, 'project')
+    // Four tiers in DSH's discovery order, each carrying its own root metadata.
+    assert.deepEqual(
+      body.tiers.map((tier) => [tier.rootId, tier.rank, tier.scope]),
+      [
+        ['project-dsh', 100, 'project'],
+        ['project-agents', 200, 'project'],
+        ['global-dsh', 400, 'global'],
+        ['global-agents', 500, 'global'],
+      ],
+    )
+    for (const tier of body.tiers) {
+      assert.equal(typeof tier.path, 'string')
+      assert.equal(typeof tier.exists, 'boolean')
+      assert.equal(typeof tier.writable, 'boolean')
+    }
+
+    const project = body.tiers[0]
+    const global = body.tiers[2]
     assert.equal(project.skills[0].name, 'demo-skill')
     assert.equal(project.skills[0].shadows.length, 1)
     assert.equal(project.skills[0].shadows[0].rootId, 'global-dsh')
@@ -183,7 +198,7 @@ test('write creates a SKILL.md and read returns it', async () => {
     assert.match(read.body.content, /# Demo/)
 
     const list = await call('list', {})
-    assert.ok(list.body.groups[0].skills.some((skill) => skill.name === 'fresh-skill'))
+    assert.ok(list.body.tiers[0].skills.some((skill) => skill.name === 'fresh-skill'))
   })
 })
 
@@ -318,7 +333,7 @@ test('a package linked into another skill root stays readable and editable', asy
     }
 
     const list = await call('list', {})
-    const row = list.body.groups[0].skills.find((skill) => skill.name === 'mirrored-skill')
+    const row = list.body.tiers[0].skills.find((skill) => skill.name === 'mirrored-skill')
     assert.equal(row.linked, true)
     assert.equal(row.realPath.toLowerCase(), join(realDirectory, 'SKILL.md').toLowerCase())
 

@@ -1,36 +1,36 @@
 /**
- * dsh-project-skills — client half.
+ * dsh-project-skills-mng — client half.
  *
  * A single-file "module table consumer" for the DSH Web shell (no build step,
  * no npm dependencies). It contributes:
- *   - one right-sidebar tab type (id `dsh-project-skills/skills`) with a guide
+ *   - one right-sidebar tab type (id `dsh-project-skills-mng/skills`) with a guide
  *     entry, so the panel is only reachable from the sidebar guide page and
  *     never pops open by itself;
  *   - the `sidebar.right.pane.tab` body (the Skills manager panel itself);
  *   - the zh/en locale dictionaries used by the tab title, guide and panel.
  *
  * The panel talks to the host half over the fenced HTTP prefix route
- * `/dsh-project-skills/api/<method>`. That route must be resolved against the
+ * `/dsh-project-skills-mng/api/<method>`. That route must be resolved against the
  * *page* base URL (Electron shell pages live on `dsh-app://app/`), never as an
  * absolute URL, otherwise reverse-proxy prefixes produce a 404.
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-project-skills',
+  id: 'dsh-project-skills-mng',
   factory(require) {
     const React = require('react')
     const h = React.createElement
     const Fragment = React.Fragment
 
-    const NS = 'dsh-project-skills'
-    const TAB_ID = 'dsh-project-skills/skills'
-    const TAB_KIND = 'dsh-project-skills/skills'
-    const GUIDE_ENTRY_ID = 'dsh-project-skills/skills.guide'
+    const NS = 'dsh-project-skills-mng'
+    const TAB_ID = 'dsh-project-skills-mng/skills'
+    const TAB_KIND = 'dsh-project-skills-mng/skills'
+    const GUIDE_ENTRY_ID = 'dsh-project-skills-mng/skills.guide'
     const PANE_SLOT = 'sidebar.right.pane.tab'
-    const API_PATH = 'dsh-project-skills/api/'
-    const STYLE_ATTRIBUTE = 'data-dsh-project-skills'
+    const API_PATH = 'dsh-project-skills-mng/api/'
+    const STYLE_ATTRIBUTE = 'data-dsh-project-skills-mng'
     const STYLE_SELECTOR = 'style[' + STYLE_ATTRIBUTE + ']'
-    const STYLE_PLUGIN_NAME = 'dsh-project-skills'
+    const STYLE_PLUGIN_NAME = 'dsh-project-skills-mng'
     const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
     const TEMPLATE_BODY_HINT = '<describe what this skill does and when to use it>'
 
@@ -51,12 +51,9 @@ window.__ModuleLoader__.load({
       'list.title': '技能',
       'list.refresh': '刷新',
       'list.new': '新建技能',
-      'counts.project': '项目 {count}',
-      'counts.global': '全局 {count}',
 
-      'group.project': '项目技能',
-      'group.global': '全局技能',
-      'group.empty': '这个分组下还没有技能。',
+      'tier.priority': 'DSH 发现顺序中的优先级：数字越小越优先，同名技能由此逐级覆盖。',
+      'group.empty': '这个目录下还没有技能。',
 
       'roots.label': '位置',
       'root.exists': '目录存在',
@@ -136,12 +133,10 @@ window.__ModuleLoader__.load({
       'list.title': 'Skills',
       'list.refresh': 'Refresh',
       'list.new': 'New skill',
-      'counts.project': 'Project {count}',
-      'counts.global': 'Global {count}',
 
-      'group.project': 'Project skills',
-      'group.global': 'Global skills',
-      'group.empty': 'No skills in this group yet.',
+      'tier.priority':
+        'Discovery priority in DSH: lower wins, and a name is shadowed tier by tier.',
+      'group.empty': 'No skills in this root yet.',
 
       'roots.label': 'Location',
       'root.exists': 'present',
@@ -370,32 +365,14 @@ window.__ModuleLoader__.load({
 }
 .dps-caret[data-open="true"] { transform: rotate(45deg); }
 
-/* ---- roots ------------------------------------------------------------ */
+/* ---- discovery tiers -------------------------------------------------- */
 
-.dps-roots {
+.dps-tier-meta {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 0 2px;
-}
-.dps-roots-label {
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
-  color: var(--dsw-alias-label-tertiary);
-}
-.dps-root-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
   min-width: 0;
-  padding: 1px 7px 1px 6px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 6px;
-  background: var(--dsw-alias-markdown-code-block);
-  color: var(--dsw-alias-label-secondary);
-  font-size: var(--dsh-content-font-size-tertiary, 11px);
-  line-height: 18px;
+  padding: 0 2px;
 }
 .dps-root-dot {
   width: 5px;
@@ -406,14 +383,19 @@ window.__ModuleLoader__.load({
 }
 .dps-root-dot[data-tone="missing"] { background: var(--dsw-alias-label-dimmed); }
 .dps-root-dot[data-tone="readonly"] { background: var(--dsw-alias-state-warn-primary); }
-.dps-root-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ${MONO_FONT};
-}
 .dps-root-mark { color: var(--dsw-alias-label-tertiary); white-space: nowrap; font-size: 10.5px; }
+.dps-rank {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-tertiary);
+  font-family: ${MONO_FONT};
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+}
 
 /* ---- rows ------------------------------------------------------------- */
 
@@ -517,7 +499,7 @@ window.__ModuleLoader__.load({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-label-secondary));
+  color: var(--dsw-alias-label-tertiary);
   font-size: var(--dsh-content-font-size-tertiary, 11px);
 }
 .dps-hint {
@@ -935,15 +917,15 @@ window.__ModuleLoader__.load({
 
     function patchListSkill(data, name, rootId, patch) {
       if (data === null || data === undefined) return data
-      if (!Array.isArray(data.groups)) return data
+      if (!Array.isArray(data.tiers)) return data
       return {
         ...data,
-        groups: data.groups.map((group) => {
-          if (group === null || typeof group !== 'object') return group
-          if (!Array.isArray(group.skills)) return group
+        tiers: data.tiers.map((tier) => {
+          if (tier === null || typeof tier !== 'object') return tier
+          if (!Array.isArray(tier.skills)) return tier
           return {
-            ...group,
-            skills: group.skills.map((skill) => {
+            ...tier,
+            skills: tier.skills.map((skill) => {
               if (skill === null || typeof skill !== 'object') return skill
               if (skill.name !== name || skill.rootId !== rootId) return skill
               return { ...skill, ...patch }
@@ -955,25 +937,37 @@ window.__ModuleLoader__.load({
 
     function writableRoots(data) {
       const out = []
-      if (data === null || data === undefined || !Array.isArray(data.groups)) return out
-      for (const group of data.groups) {
-        if (group === null || typeof group !== 'object') continue
-        if (!Array.isArray(group.roots)) continue
-        for (const root of group.roots) {
-          if (root === null || typeof root !== 'object') continue
-          if (root.writable === true) out.push(root)
-        }
+      if (data === null || data === undefined || !Array.isArray(data.tiers)) return out
+      for (const tier of data.tiers) {
+        if (tier === null || typeof tier !== 'object') continue
+        if (tier.writable !== true) continue
+        out.push({
+          id: typeof tier.rootId === 'string' ? tier.rootId : tier.id,
+          source: tier.source,
+          path: tier.path,
+          exists: tier.exists === true,
+          writable: true,
+          rank: tier.rank,
+          scope: tier.scope,
+        })
       }
       return out
     }
 
     function findRootInfo(data, rootId) {
-      if (data === null || data === undefined || !Array.isArray(data.groups)) return undefined
-      for (const group of data.groups) {
-        if (group === null || typeof group !== 'object') continue
-        if (!Array.isArray(group.roots)) continue
-        for (const root of group.roots) {
-          if (root !== null && typeof root === 'object' && root.id === rootId) return root
+      if (data === null || data === undefined || !Array.isArray(data.tiers)) return undefined
+      for (const tier of data.tiers) {
+        if (tier === null || typeof tier !== 'object') continue
+        const id = typeof tier.rootId === 'string' ? tier.rootId : tier.id
+        if (id !== rootId) continue
+        return {
+          id,
+          source: tier.source,
+          path: tier.path,
+          exists: tier.exists === true,
+          writable: tier.writable === true,
+          rank: tier.rank,
+          scope: tier.scope,
         }
       }
       return undefined
@@ -1370,7 +1364,7 @@ window.__ModuleLoader__.load({
           )
         }
 
-        const groups = Array.isArray(data.groups) ? data.groups : []
+        const tiers = Array.isArray(data.tiers) ? data.tiers : []
         const total = counts !== null && typeof counts.total === 'number' ? counts.total : null
         if (total === 0) {
           parts.push(
@@ -1392,57 +1386,43 @@ window.__ModuleLoader__.load({
           )
         }
 
-        for (const group of groups) {
-          // The empty card already explains the situation; zero-count groups
-          // would only repeat "no skills yet" twice.
+        for (const tier of tiers) {
+          // The empty card already explains the situation; zero-count tiers
+          // would only repeat "no skills yet" four times.
           if (total === 0) break
-          if (group === null || typeof group !== 'object') continue
-          const scope = group.scope === 'global' ? 'global' : 'project'
-          const isCollapsed = collapsed[scope] === true
-          const skills = Array.isArray(group.skills) ? group.skills : []
-          const roots = Array.isArray(group.roots) ? group.roots : []
+          if (tier === null || typeof tier !== 'object') continue
+          const rootId = typeof tier.rootId === 'string' ? tier.rootId : String(tier.id)
+          const isCollapsed = collapsed[rootId] === true
+          const skills = Array.isArray(tier.skills) ? tier.skills : []
+          const exists = tier.exists === true
+          const writable = tier.writable === true
+          const rank = typeof tier.rank === 'number' ? tier.rank : null
+          const fullPath = typeof tier.path === 'string' ? tier.path : ''
+          const marks = []
+          if (!exists) marks.push(t('root.missing'))
+          if (!writable) marks.push(t('root.readonly'))
 
           const body = isCollapsed
             ? null
             : h(
                 'div',
                 { className: 'dps-group-body' },
-                roots.length > 0
-                  ? h(
+                marks.length === 0
+                  ? null
+                  : h(
                       'div',
-                      { className: 'dps-roots', key: 'roots' },
-                      h('span', { className: 'dps-roots-label' }, t('roots.label')),
-                      roots.map((root, rootIndex) => {
-                        const exists = root.exists === true
-                        const writable = root.writable === true
-                        const tone = !exists ? 'missing' : writable ? 'ok' : 'readonly'
-                        const marks = []
-                        if (!exists) marks.push(t('root.missing'))
-                        if (!writable) marks.push(t('root.readonly'))
-                        const fullPath =
-                          typeof root.path === 'string' ? root.path : String(root.id)
-                        return h(
-                          'div',
-                          {
-                            className: 'dps-root-line',
-                            key: 'root-' + String(rootIndex),
-                            title:
-                              fullPath +
-                              (marks.length > 0 ? ' \u00b7 ' + marks.join(' \u00b7 ') : ''),
-                          },
-                          h('span', {
-                            className: 'dps-root-dot',
-                            'data-tone': tone,
-                            'aria-hidden': 'true',
-                          }),
-                          h('span', { className: 'dps-root-name' }, shortRootPath(fullPath)),
-                          marks.length > 0
-                            ? h('span', { className: 'dps-root-mark' }, marks.join(' \u00b7 '))
-                            : null,
-                        )
+                      {
+                        className: 'dps-tier-meta',
+                        key: 'meta',
+                        title: fullPath,
+                      },
+                      h('span', {
+                        className: 'dps-root-dot',
+                        'data-tone': !exists ? 'missing' : 'readonly',
+                        'aria-hidden': 'true',
                       }),
-                    )
-                  : null,
+                      h('span', { className: 'dps-root-mark' }, marks.join(' \u00b7 ')),
+                    ),
                 skills.length === 0
                   ? h('p', { className: 'dps-hint' }, t('group.empty'))
                   : h(
@@ -1465,9 +1445,6 @@ window.__ModuleLoader__.load({
                               { className: 'dps-name', title: skill.name },
                               skill.name,
                             ),
-                            typeof skill.source === 'string'
-                              ? h('span', { className: 'dps-badge' }, skill.source)
-                              : null,
                             skill.linked === true
                               ? h(
                                   'span',
@@ -1532,7 +1509,7 @@ window.__ModuleLoader__.load({
           parts.push(
             h(
               'section',
-              { className: 'dps-group', key: 'group-' + scope },
+              { className: 'dps-group', key: 'tier-' + rootId },
               h(
                 'button',
                 {
@@ -1542,7 +1519,7 @@ window.__ModuleLoader__.load({
                   onClick: () =>
                     setCollapsed((previous) => ({
                       ...previous,
-                      [scope]: !previous[scope],
+                      [rootId]: !previous[rootId],
                     })),
                 },
                 h('span', {
@@ -1550,12 +1527,19 @@ window.__ModuleLoader__.load({
                   'data-open': String(!isCollapsed),
                   'aria-hidden': 'true',
                 }),
-                h(
-                  'span',
-                  { className: 'dps-group-title' },
-                  scope === 'global' ? t('group.global') : t('group.project'),
-                ),
+                h('span', {
+                  className: 'dps-group-title',
+                  title: fullPath,
+                }, rootLabel(t, { id: rootId })),
                 h('span', { className: 'dps-count' }, String(skills.length)),
+                h('span', { className: 'dps-spacer' }),
+                rank === null
+                  ? null
+                  : h(
+                      'span',
+                      { className: 'dps-rank', title: t('tier.priority') },
+                      String(rank),
+                    ),
               ),
               body,
             ),
@@ -2322,7 +2306,7 @@ window.__ModuleLoader__.load({
       if (sessionId === undefined) {
         return h(
           'div',
-          { className: 'dps-root', 'data-dsh-project-skills-panel': '' },
+          { className: 'dps-root', 'data-dsh-project-skills-mng-panel': '' },
           h(
             'div',
             { className: 'dps-empty' },
@@ -2376,7 +2360,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { className: 'dps-root', 'data-dsh-project-skills-panel': '' },
+        { className: 'dps-root', 'data-dsh-project-skills-mng-panel': '' },
         actionError !== null
           ? h(ErrorBar, {
               t: t,

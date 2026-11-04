@@ -1,5 +1,5 @@
 /**
- * dsh-project-skills — host half.
+ * dsh-project-skills-mng — host half.
  *
  * Serves the right-sidebar Skills panel over one fenced HTTP prefix route and
  * registers a model-facing tool that reuses the exact same operations. Skills
@@ -21,7 +21,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 export const inject = ['webServer', 'connection']
 
-const API_PREFIX = '/dsh-project-skills/api'
+const API_PREFIX = '/dsh-project-skills-mng/api'
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_SKILL_BYTES = 512 * 1024
@@ -547,13 +547,22 @@ function createApi(ctx) {
       }
       await annotateLinks(skills, roots)
       markShadowing(skills)
-      const groups = ['project', 'global'].map((scope) => ({
-        scope,
-        roots: roots
-          .filter((root) => root.scope === scope)
-          .map((root) => ({ id: root.id, source: root.source, path: root.path, exists: root.exists, writable: root.writable })),
+      // One tier per declared root, ordered by DSH's own rank (100 → 500).
+      // The panel mirrors the harness' discovery order instead of collapsing the
+      // four roots into "project" and "global": a skill in a lower-ranked root is
+      // shadowed by the same name in any higher-ranked root, project or global.
+      const tiers = roots.map((root) => ({
+        rank: root.rank,
+        scope: root.scope,
+        id: root.id,
+        rootId: root.id,
+        source: root.source,
+        label: root.label,
+        path: root.path,
+        exists: root.exists,
+        writable: root.writable,
         skills: skills
-          .filter((skill) => skill.scope === scope)
+          .filter((skill) => skill.rootId === root.id)
           .map((skill) => ({
             name: skill.name,
             description: skill.description,
@@ -572,13 +581,17 @@ function createApi(ctx) {
           })),
       }))
       const counts = {
-        project: groups[0].skills.length,
-        global: groups[1].skills.length,
+        project: tiers
+          .filter((tier) => tier.scope === 'project')
+          .reduce((sum, tier) => sum + tier.skills.length, 0),
+        global: tiers
+          .filter((tier) => tier.scope === 'global')
+          .reduce((sum, tier) => sum + tier.skills.length, 0),
         total: skills.length,
         shadowed: skills.filter((skill) => skill.shadowed).length,
         broken: errors.length,
       }
-      return { cwd: resolved.cwd, projectRoot: resolved.projectRoot, counts, groups, errors }
+      return { cwd: resolved.cwd, projectRoot: resolved.projectRoot, counts, tiers, errors }
     },
 
     async read(payload) {
@@ -783,7 +796,7 @@ function createHandler(ctx, api) {
         writeJson(res, 200, { ok: false, error: { code: error.code, message: error.message } })
         return
       }
-      ctx.logger?.warn?.(`dsh-project-skills: ${method} failed: ${errorMessage(error)}`)
+      ctx.logger?.warn?.(`dsh-project-skills-mng: ${method} failed: ${errorMessage(error)}`)
       writeJson(res, 500, { ok: false, error: { code: 'INTERNAL', message: errorMessage(error) } })
     }
   }
@@ -818,7 +831,7 @@ const TOOL_PARAMETERS = {
 function registerTool(ctx, api) {
   const tools = ctx.get('tools')
   if (tools === undefined || typeof tools.register !== 'function') {
-    ctx.logger?.info?.('dsh-project-skills: tools service is unavailable; skipping the model-facing tool')
+    ctx.logger?.info?.('dsh-project-skills-mng: tools service is unavailable; skipping the model-facing tool')
     return
   }
   ctx.effect(() => tools.register({
@@ -840,7 +853,7 @@ function registerTool(ctx, api) {
       if (method === 'roots') throw new Error('roots is not a tool action')
       return await api[method](payload)
     },
-  }), 'dsh-project-skills: model-facing tool')
+  }), 'dsh-project-skills-mng: model-facing tool')
 }
 
 /* ------------------------------------------------------------------ *
@@ -854,6 +867,6 @@ export function apply(ctx) {
     kind: 'prefix',
     path: API_PREFIX,
     handler,
-  }), 'dsh-project-skills: host API')
+  }), 'dsh-project-skills-mng: host API')
   registerTool(ctx, api)
 }

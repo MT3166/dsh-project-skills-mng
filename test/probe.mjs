@@ -52,7 +52,7 @@ function request(method, payload) {
   return new Promise((resolve, reject) => {
     const req = new EventEmitter()
     req.method = 'POST'
-    req.url = '/dsh-project-skills/api/' + method
+    req.url = '/dsh-project-skills-mng/api/' + method
     req.destroy = () => {}
     const res = {
       statusCode: 0,

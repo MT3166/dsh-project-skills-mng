@@ -1,5 +1,5 @@
 /**
- * Smoke test for the client half of dsh-project-skills.
+ * Smoke test for the client half of dsh-project-skills-mng.
  *
  * The plugin is a browser script with no build step: it talks to the module
  * table (`window.__ModuleLoader__`) at load time and receives its framework
@@ -27,8 +27,8 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CLIENT_PATH = join(HERE, '..', 'client.js')
 const SOURCE = readFileSync(CLIENT_PATH, 'utf8')
 
-const NAMESPACE = 'dsh-project-skills'
-const TAB_ID = 'dsh-project-skills/skills'
+const NAMESPACE = 'dsh-project-skills-mng'
+const TAB_ID = 'dsh-project-skills-mng/skills'
 const PANE_SLOT = 'sidebar.right.pane.tab'
 const PAGE_BASE = 'https://desk.example/app/'
 
@@ -480,7 +480,7 @@ function setup(options = {}) {
     clearTimeout,
     fetch: async (url, init) => {
       const requestUrl = String(url)
-      const marker = '/dsh-project-skills/api/'
+      const marker = '/dsh-project-skills-mng/api/'
       const at = requestUrl.indexOf(marker)
       const method = at >= 0 ? requestUrl.slice(at + marker.length) : ''
       let parsed = null
@@ -548,25 +548,16 @@ function createHostStub() {
       cwd: 'D:/proj',
       projectRoot: 'D:/proj',
       counts: { project: 2, global: 1, total: 3, shadowed: 1, broken: 1 },
-      groups: [
+      tiers: [
         {
+          rank: 100,
           scope: 'project',
-          roots: [
-            {
-              id: 'project-dsh',
-              source: 'project-dsh',
-              path: 'D:/proj/.dsh/skills',
-              exists: true,
-              writable: true,
-            },
-            {
-              id: 'project-agents',
-              source: 'project-agents',
-              path: 'D:/proj/.agents/skills',
-              exists: false,
-              writable: false,
-            },
-          ],
+          id: 'project-dsh',
+          rootId: 'project-dsh',
+          source: 'project-dsh',
+          path: 'D:/proj/.dsh/skills',
+          exists: true,
+          writable: true,
           skills: [
             {
               name: 'alpha-skill',
@@ -598,16 +589,36 @@ function createHostStub() {
           ],
         },
         {
+          rank: 200,
+          scope: 'project',
+          id: 'project-agents',
+          rootId: 'project-agents',
+          source: 'project-agents',
+          path: 'D:/proj/.agents/skills',
+          exists: false,
+          writable: false,
+          skills: [],
+        },
+        {
+          rank: 400,
           scope: 'global',
-          roots: [
-            {
-              id: 'global-dsh',
-              source: 'user-dsh',
-              path: 'C:/Users/tester/.dsh/skills',
-              exists: true,
-              writable: false,
-            },
-          ],
+          id: 'global-dsh',
+          rootId: 'global-dsh',
+          source: 'user-dsh',
+          path: 'C:/Users/tester/.dsh/skills',
+          exists: true,
+          writable: false,
+          skills: [],
+        },
+        {
+          rank: 500,
+          scope: 'global',
+          id: 'global-agents',
+          rootId: 'global-agents',
+          source: 'user-agents',
+          path: 'C:/Users/tester/.agents/skills',
+          exists: true,
+          writable: true,
           skills: [],
         },
       ],
@@ -715,7 +726,7 @@ test('apply registers the tab type, guide entry and pane body', () => {
   assert.equal(tab.id, TAB_ID)
   assert.equal(tab.kind, TAB_ID)
   assert.equal(typeof tab.title, 'function')
-  assert.equal(typeof tab.title('dsh-project-skills://skills'), 'string')
+  assert.equal(typeof tab.title('dsh-project-skills-mng://skills'), 'string')
 
   assert.ok(Array.isArray(tab.guide) && tab.guide.length > 0, 'guide must not be empty')
   const guide = tab.guide[0]
@@ -777,7 +788,7 @@ test('the scoped stylesheet is injected and removed on dispose', () => {
   assert.equal(documentStub.head.children.length, 1, 'exactly one style tag was injected')
   const tag = documentStub.head.children[0]
   assert.equal(tag.tagName, 'STYLE')
-  assert.notEqual(tag.getAttribute('data-dsh-project-skills'), null)
+  assert.notEqual(tag.getAttribute('data-dsh-project-skills-mng'), null)
   assert.equal(tag.getAttribute('data-plugin-css'), NAMESPACE)
   assert.ok(tag.textContent.includes('.dps-root'), 'styles are scoped under .dps-')
 
@@ -809,7 +820,7 @@ test('the list requests the relative API URL and renders roots, rows and warning
 
   assert.equal(calls.length, 1)
   assert.equal(calls[0].method, 'list')
-  assert.equal(calls[0].url, PAGE_BASE + 'dsh-project-skills/api/list')
+  assert.equal(calls[0].url, PAGE_BASE + 'dsh-project-skills-mng/api/list')
   assert.equal(calls[0].body.sessionId, 'session-1')
 
   const rows = findAllByClass(runtime, 'dps-row')
@@ -819,11 +830,16 @@ test('the list requests the relative API URL and renders roots, rows and warning
   assert.ok(textOf(rows[1]).includes('beta-skill'))
   assert.ok(textOf(rows[1]).includes('L:shadowed.by'))
 
-  // Three roots across the two groups, one of them missing + read-only.
-  const rootLines = findAllByClass(runtime, 'dps-root-line')
-  assert.equal(rootLines.length, 3)
-  assert.ok(textOf(rootLines[1]).includes('L:root.missing'))
-  assert.ok(textOf(rootLines[1]).includes('L:root.readonly'))
+  // One section per DSH root, in rank order. The path line only shows up for a
+  // tier that is missing or read-only, so a healthy profile stays quiet.
+  const tierMeta = findAllByClass(runtime, 'dps-tier-meta')
+  assert.equal(tierMeta.length, 2)
+  assert.ok(textOf(tierMeta[0]).includes('L:root.missing'))
+  assert.ok(textOf(tierMeta[0]).includes('L:root.readonly'))
+  assert.equal(textOf(tierMeta[1]).includes('L:root.readonly'), true)
+  assert.equal(textOf(tierMeta[1]).includes('L:root.missing'), false)
+  const ranks = findAllByClass(runtime, 'dps-rank').map((node) => textOf(node))
+  assert.deepEqual(ranks, ['100', '200', '400', '500'])
 
   // Broken SKILL.md entries show up as a collapsible warning bar.
   assert.equal(findAllByClass(runtime, 'dps-warn').length, 1)
@@ -914,13 +930,16 @@ test('create writes the standard SKILL.md template and opens the editor', async 
   findButton(runtime, 'L:list.new').props.onClick()
   await runtime.settle()
 
-  // Only writable roots are offered (project-dsh).
+  // Only writable roots are offered: project-dsh (100) and global-agents (500).
   const selects = findAllByClass(runtime, 'dps-select')
   assert.equal(selects.length, 1)
   const options = selects[0].props.children
   assert.ok(Array.isArray(options))
-  assert.equal(options.length, 1)
-  assert.equal(options[0].props.value, 'project-dsh')
+  // The option list is built inside the vm realm, so compare it as JSON.
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(options.map((option) => option.props.value))),
+    ['project-dsh', 'global-agents'],
+  )
   assert.equal(selects[0].props.value, 'project-dsh')
 
   // Submit stays disabled until the form is valid.
@@ -986,14 +1005,7 @@ test('a shadowed row reads its own file and stays read-only when its root is', a
 
 test('a shadowed row in a writable root edits in place through its own rootId', async () => {
   const host = createHostStub()
-  host.list.groups[1].roots.push({
-    id: 'global-agents',
-    source: 'user-agents',
-    path: 'C:/Users/tester/.agents/skills',
-    exists: true,
-    writable: true,
-  })
-  host.list.groups[1].skills.push({
+  host.list.tiers[3].skills.push({
     name: 'delta-skill',
     description: 'Delta duplicate',
     path: 'C:/Users/tester/.agents/skills/delta-skill/SKILL.md',
@@ -1045,7 +1057,7 @@ test('a shadowed row in a writable root edits in place through its own rootId', 
 
 test('a linked skill shows the link badge and reads through the link', async () => {
   const host = createHostStub()
-  host.list.groups[1].skills.push({
+  host.list.tiers[2].skills.push({
     name: 'linked-skill',
     description: 'Mirrored from the agents home',
     path: 'C:/Users/tester/.dsh/skills/linked-skill/SKILL.md',

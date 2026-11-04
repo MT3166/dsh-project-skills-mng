@@ -385,27 +385,30 @@ const LIST = {
   cwd: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng',
   projectRoot: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng',
   counts: { project: 2, global: 6, total: 8, shadowed: 2, broken: 1 },
-  groups: [
+  tiers: [
     {
+      rank: 100,
       scope: 'project',
-      roots: [
-        {
-          id: 'project-dsh',
-          source: 'project-dsh',
-          path: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.dsh\\skills',
-          exists: true,
-          writable: true,
-        },
-        {
-          id: 'project-agents',
-          source: 'project-agents',
-          path: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.agents\\skills',
-          exists: false,
-          writable: true,
-        },
-      ],
+      id: 'project-dsh',
+      rootId: 'project-dsh',
+      source: 'project-dsh',
+      path: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.dsh\\skills',
+      exists: true,
+      writable: true,
       skills: [
         skill('demo-skill', '用来验证右栏技能面板的演示技能，包含增删改查与调用开关。', 'project-dsh', 'project-dsh'),
+      ],
+    },
+    {
+      rank: 200,
+      scope: 'project',
+      id: 'project-agents',
+      rootId: 'project-agents',
+      source: 'project-agents',
+      path: 'D:\\XMT\\99_Codebase\\github\\dsh-project-skills-mng\\.agents\\skills',
+      exists: false,
+      writable: true,
+      skills: [
         skill('release-notes', '汇总本仓库每次发布的变更条目，按模块分组。', 'project-agents', 'project-agents', {
           rank: 200,
           userInvocable: false,
@@ -415,23 +418,14 @@ const LIST = {
       ],
     },
     {
+      rank: 400,
       scope: 'global',
-      roots: [
-        {
-          id: 'global-dsh',
-          source: 'user-dsh',
-          path: 'C:\\Users\\honor\\.dsh\\skills',
-          exists: true,
-          writable: true,
-        },
-        {
-          id: 'global-agents',
-          source: 'user-agents',
-          path: 'C:\\Users\\honor\\.agents\\skills',
-          exists: true,
-          writable: true,
-        },
-      ],
+      id: 'global-dsh',
+      rootId: 'global-dsh',
+      source: 'user-dsh',
+      path: 'C:\\Users\\honor\\.dsh\\skills',
+      exists: true,
+      writable: true,
       skills: [
         skill('brainstorming', '在任何创作之前先做需求澄清与方案发散，产出可批准的设计。', 'global-dsh', 'user-dsh', {
           rank: 400,
@@ -443,6 +437,18 @@ const LIST = {
           rank: 400,
           modelInvocable: false,
         }),
+      ],
+    },
+    {
+      rank: 500,
+      scope: 'global',
+      id: 'global-agents',
+      rootId: 'global-agents',
+      source: 'user-agents',
+      path: 'C:\\Users\\honor\\.agents\\skills',
+      exists: true,
+      writable: true,
+      skills: [
         skill('systematic-debugging', '遇到任何 bug、测试失败或异常行为时，先系统定位再改代码。', 'global-agents', 'user-agents', {
           rank: 500,
           shadowed: true,
@@ -595,7 +601,7 @@ function setup() {
     clearTimeout,
     fetch: async (url, init) => {
       const requestUrl = String(url)
-      const marker = '/dsh-project-skills/api/'
+      const marker = '/dsh-project-skills-mng/api/'
       const at = requestUrl.indexOf(marker)
       const method = at >= 0 ? requestUrl.slice(at + marker.length) : ''
       let payload = null
@@ -660,7 +666,7 @@ function emptyList() {
   return {
     ...LIST,
     counts: { project: 0, global: 0, total: 0, shadowed: 0, broken: 0 },
-    groups: LIST.groups.map((group) => ({ ...group, skills: [] })),
+    tiers: LIST.tiers.map((tier) => ({ ...tier, skills: [] })),
     errors: [],
   }
 }
@@ -687,7 +693,7 @@ async function capture(state) {
   const props = {
     sessionId: 'session-preview',
     t,
-    useTabInfo: () => ({ tab: { id: 'preview', kind: 'dsh-project-skills/skills', visible: true, navigation: { params: {} } } }),
+    useTabInfo: () => ({ tab: { id: 'preview', kind: 'dsh-project-skills-mng/skills', visible: true, navigation: { params: {} } } }),
   }
 
   runtime.mount(React.createElement(body, props))

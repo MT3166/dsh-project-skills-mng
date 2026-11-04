@@ -1,0 +1,87 @@
+name: Bug 报告
+description: 右栏面板、Host API 或 skills_manage 工具出问题了
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先搜索已有 issue，确认不是重复问题；能复现的最小步骤比截图更有用。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？和预期差在哪里？
+      placeholder: 打开右栏「项目技能」后，Project 分组为空，但项目里确实有 .dsh/skills/foo。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步一步写清楚，最好能稳定复现。
+      placeholder: |
+        1. 在 <项目> 打开会话
+        2. 点右栏「+」→「项目技能」
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - 右栏面板 UI / 交互
+        - Host API（/dsh-project-skills-mng/api/*）
+        - skills_manage 工具（模型侧）
+        - 安装 / bundle 加载 / HMR
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: package.json 的 version，或 commit hash（`git log -1 --oneline`）
+      placeholder: 0.1.0 / f0fee42
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      description: 出问题的 DSH 桌面端 / 运行时版本
+      placeholder: 例如 DSH NEXT 0.x
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: Windows 11 / macOS 15 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 报错信息、Host 日志、浏览器控制台日志；截图可以直接拖进输入框。
+      render: shell
+
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: 确认项
+      options:
+        - label: 我已搜索过现有 issue，确认不是重复问题
+          required: true
+        - label: 我已确认技能文件本身存在且 frontmatter 合法（能排除数据问题）
+          required: false

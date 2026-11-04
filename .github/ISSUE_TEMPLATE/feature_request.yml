@@ -1,0 +1,56 @@
+name: 功能建议
+description: 想要新的面板能力、交互或工具行为
+title: "[feat] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本插件只做"技能文件的管理面板"，不重建技能注册表。提建议时请说明它属于面板交互、
+        Host API 还是 `skills_manage` 工具的行为。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题
+      description: 现在哪里不顺手？为什么现有方式不够用？
+      placeholder: 技能多了以后列表没有搜索，找一条要滚很久。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 你希望它怎么工作？有草图/交互描述更好。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+      description: 有没有其他做法，或者你现在用手工方式怎么绕过的？
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - 右栏面板 UI / 交互
+        - Host API（/dsh-project-skills-mng/api/*）
+        - skills_manage 工具（模型侧）
+        - 安装 / 配置
+        - 其他
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirms
+    attributes:
+      label: 确认项
+      options:
+        - label: 我已搜索过现有 issue，确认不是重复建议
+          required: true
