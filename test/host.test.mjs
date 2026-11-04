@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises'
 import { symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, normalize } from 'node:path'
 
 const API = '/dsh-project-skills-mng/api/'
 
@@ -447,4 +447,137 @@ test('batch rejects more than one hundred items', async () => {
     assert.equal(response.body.error.code, 'TOO_MANY_ITEMS')
   })
 })
+
+test('transfer copies a skill into another tier and leaves the source alone', async () => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    const source = join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md')
+    await mkdir(dirname(source), { recursive: true })
+    await writeFile(source, SKILL)
+
+    const response = await call('transfer', {
+      name: 'demo-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'global-agents',
+      mode: 'copy',
+      conflict: 'skip',
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    const copied = join(agentsHome, 'skills', 'demo-skill', 'SKILL.md')
+    assert.equal(normalize(response.body.targetPath), normalize(copied))
+    assert.match(await readFile(copied, 'utf8'), /name: demo-skill/)
+    assert.match(await readFile(source, 'utf8'), /name: demo-skill/)
+  })
+})
+
+test('transfer reports a conflict instead of overwriting by default', async () => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    await mkdir(join(projectDir, '.dsh', 'skills', 'demo-skill'), { recursive: true })
+    await writeFile(join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md'), SKILL)
+    const target = join(agentsHome, 'skills', 'demo-skill', 'SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, SKILL.replace('Body.', 'Existing body.'))
+
+    const response = await call('transfer', {
+      name: 'demo-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'global-agents',
+      mode: 'copy',
+    })
+    assert.equal(response.body.ok, false)
+    assert.equal(response.body.error.code, 'TARGET_EXISTS')
+    assert.match(await readFile(target, 'utf8'), /Existing body\./)
+
+    // Everything after a failing request is untouched; the batch path reports it per item.
+    const batch = await call('batch', {
+      action: 'transfer',
+      transferMode: 'copy',
+      conflict: 'skip',
+      target: { rootId: 'global-agents' },
+      items: [{ name: 'demo-skill', rootId: 'project-dsh' }],
+    })
+    assert.equal(batch.body.summary.failed, 1)
+    assert.equal(batch.body.results[0].code, 'TARGET_EXISTS')
+  })
+})
+
+test('transfer overwrites the target when asked to', async () => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    await mkdir(join(projectDir, '.dsh', 'skills', 'demo-skill'), { recursive: true })
+    await writeFile(join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md'), SKILL)
+    const target = join(agentsHome, 'skills', 'demo-skill', 'SKILL.md')
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, SKILL.replace('Body.', 'Existing body.'))
+
+    const response = await call('transfer', {
+      name: 'demo-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'global-agents',
+      mode: 'copy',
+      conflict: 'overwrite',
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.match(await readFile(target, 'utf8'), /Body\./)
+    assert.doesNotMatch(await readFile(target, 'utf8'), /Existing body\./)
+  })
+})
+
+test('transfer moves a skill and removes the source', async () => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    const source = join(projectDir, '.dsh', 'skills', 'demo-skill')
+    await mkdir(source, { recursive: true })
+    await writeFile(join(source, 'SKILL.md'), SKILL)
+
+    const response = await call('transfer', {
+      name: 'demo-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'global-agents',
+      mode: 'move',
+    })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.match(await readFile(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'), 'utf8'), /name: demo-skill/)
+    await assert.rejects(stat(source))
+  })
+})
+
+test('transfer refuses to move a skill onto its own tier', async () => {
+  await withSandbox(async ({ call, projectDir }) => {
+    await mkdir(join(projectDir, '.dsh', 'skills', 'demo-skill'), { recursive: true })
+    await writeFile(join(projectDir, '.dsh', 'skills', 'demo-skill', 'SKILL.md'), SKILL)
+
+    const response = await call('transfer', {
+      name: 'demo-skill',
+      rootId: 'project-dsh',
+      targetRootId: 'project-dsh',
+      mode: 'move',
+    })
+    assert.equal(response.body.ok, false)
+    assert.equal(response.body.error.code, 'INVALID_TARGET')
+  })
+})
+
+test('moving a linked skill to its real tier only removes the link', async (t) => {
+  await withSandbox(async ({ call, projectDir, agentsHome }) => {
+    const real = join(agentsHome, 'skills', 'mirrored-skill')
+    await mkdir(real, { recursive: true })
+    await writeFile(join(real, 'SKILL.md'), SKILL.replaceAll('demo-skill', 'mirrored-skill'))
+    const linkPath = join(projectDir, '.dsh', 'skills', 'mirrored-skill')
+    await mkdir(join(projectDir, '.dsh', 'skills'), { recursive: true })
+    if (!(await makeDirLink(real, linkPath))) {
+      t.skip('this OS/user cannot create directory links')
+      return
+    }
+
+    const batch = await call('batch', {
+      action: 'transfer',
+      transferMode: 'move',
+      target: { rootId: 'global-agents' },
+      items: [{ name: 'mirrored-skill', rootId: 'project-dsh' }],
+    })
+    assert.equal(batch.body.summary.succeeded, 1, JSON.stringify(batch.body))
+    assert.equal(batch.body.results[0].unlinked, true)
+    await assert.rejects(stat(linkPath))
+    assert.match(await readFile(join(real, 'SKILL.md'), 'utf8'), /name: mirrored-skill/)
+  })
+})
+
 

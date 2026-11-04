@@ -483,6 +483,16 @@ function normalizeForCompare(path) {
   return process.platform === 'win32' ? path.toLowerCase() : path
 }
 
+/** The declared root that physically owns a real path, if any. */
+async function rootOwningPath(roots, targetPath) {
+  for (const root of roots) {
+    if (!root.exists) continue
+    const real = await realpath(root.path).catch(() => undefined)
+    if (real !== undefined && isInside(real, targetPath)) return root
+  }
+  return undefined
+}
+
 async function ensureRootDirectory(root, allowedReals = []) {
   if (!root.writable) throw new ApiError('ROOT_READ_ONLY', `skill root ${root.path} is not writable`)
   await mkdir(root.path, { recursive: true })
@@ -717,6 +727,80 @@ function createApi(ctx) {
         content: nextContent,
       }
     },
+
+    /**
+     * Copy or move one skill into another declared tier.
+     *
+     * A mirrored package (`~/.dsh/skills/x -> ~/.agents/skills/x`) is a link to
+     * bytes that already live in another tier. Copying it writes a real copy;
+     * moving it onto the tier that owns those bytes only removes the link, so
+     * the real package is never duplicated or destroyed by accident.
+     */
+    async transfer(payload) {
+      const resolved = await session(payload)
+      const roots = await describeRoots(resolved.projectRoot)
+      const allowed = await knownRootReals(roots)
+      const source = findRoot(roots, payload?.rootId)
+      const target = findRoot(roots, payload?.targetRootId)
+      const mode = payload?.mode === 'copy' || payload?.mode === 'move' ? payload.mode : undefined
+      if (mode === undefined) throw new ApiError('INVALID_PAYLOAD', 'mode must be "copy" or "move"')
+      const conflict = payload?.conflict === 'overwrite' ? 'overwrite' : 'skip'
+      const name = validateSkillName(payload?.name)
+      if (!target.writable) throw new ApiError('ROOT_READ_ONLY', `skill root ${target.path} is not writable`)
+
+      const sourceReal = await realpath(source.path).catch(() => undefined)
+      if (sourceReal === undefined) throw new ApiError('SKILL_NOT_FOUND', `skill root ${source.path} does not exist`)
+      const located = await locateSkillFile(sourceReal, name)
+      if (located === undefined) throw new ApiError('SKILL_NOT_FOUND', `no skill named "${name}" in ${source.path}`)
+      const contained = await resolveContained(sourceReal, located.filePath, allowed)
+      const linked = located.directory === undefined
+        ? contained.linked
+        : (await lstat(located.directory)).isSymbolicLink()
+      const owner = linked ? await rootOwningPath(roots, contained.realPath) : undefined
+
+      // Moving a mirror onto its own bytes is an unlink, not a copy.
+      if (mode === 'move' && linked && owner !== undefined && owner.id === target.id) {
+        await unlink(located.directory ?? located.filePath)
+        return {
+          name,
+          rootId: source.id,
+          targetRootId: target.id,
+          mode,
+          unlinked: true,
+          targetPath: contained.realPath,
+        }
+      }
+      if (source.id === target.id) {
+        throw new ApiError('INVALID_TARGET', 'source and target tiers are the same')
+      }
+
+      const targetReal = await realpath(target.path).catch(() => undefined)
+      const conflictWith = targetReal === undefined ? undefined : await locateSkillFile(targetReal, name)
+      if (conflictWith !== undefined && conflict !== 'overwrite') {
+        throw new ApiError('TARGET_EXISTS', `"${name}" already exists in ${target.path}`)
+      }
+
+      const content = await readFile(contained.realPath, 'utf8')
+      const written = await writeSkillFile(target, name, content, allowed)
+      let unlinked = false
+      if (mode === 'move') {
+        if (linked) {
+          await unlink(located.directory ?? located.filePath)
+          unlinked = true
+        } else {
+          await api.delete({ sessionId: payload.sessionId, rootId: source.id, name })
+        }
+      }
+      return {
+        name,
+        rootId: source.id,
+        targetRootId: target.id,
+        mode,
+        targetPath: written.filePath,
+        created: written.created,
+        ...(unlinked ? { unlinked } : {}),
+      }
+    },
   }
 
   const BATCH_LIMIT = 100
@@ -757,9 +841,17 @@ function createApi(ctx) {
       }
       operation = (item) => api.toggle({ ...context, ...item, field: invocation.field, value: invocation.value })
     } else if (action === 'transfer') {
-      operation = async () => {
-        throw new ApiError('INVALID_ACTION', 'transfer is not implemented yet')
+      if (typeof payload.target?.rootId !== 'string') {
+        throw new ApiError('INVALID_PAYLOAD', 'target.rootId is required for transfer')
       }
+      operation = (item) =>
+        api.transfer({
+          ...context,
+          ...item,
+          targetRootId: payload.target.rootId,
+          mode: payload.transferMode,
+          conflict: payload.conflict,
+        })
     } else {
       throw new ApiError('INVALID_ACTION', `unknown batch action: ${String(action)}`)
     }
