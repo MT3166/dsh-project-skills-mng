@@ -52,25 +52,44 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
    「项目技能」；
 2. 四个层级分组按优先级排列（100 / 200 / 400 / 500），点分组头折叠，点任意一行进入详情；
 3. 详情里可以直接编辑 SKILL.md 正文与 frontmatter，保存后列表自动刷新；
-4. 工具栏可以刷新与新建技能（名称 + 描述生成 frontmatter 模板，再手动补正文）。
+4. 工具栏可以刷新与新建技能（名称 + 描述生成 frontmatter 模板，再手动补正文）；
+5. 筛选条：搜索名称/描述，用四个层级 chip 只看某几层，用 M 关闭 / U 关闭 / 被覆盖 /
+   链接安装 四个 chip 只看某类条目，筛选条件可叠加，「清除筛选」一键复原；
+6. 工具栏「选择」进入多选：行前勾选框、组头「本层全选」、Shift 连选，Esc 退出；
+   底部操作条可批量删除、批量切换调用开关、跨层移动或复制。结果条给出「成功 N · 失败 M」，
+   失败项可展开看错误码（如目标层已有同名技能）。
+
+| 列表 | 筛选 |
+| --- | --- |
+| ![列表](docs/screenshots/list.png) | ![筛选](docs/screenshots/filter.png) |
+
+| 多选 | 批量结果 |
+| --- | --- |
+| ![多选](docs/screenshots/select.png) | ![批量结果](docs/screenshots/batch.png) |
+
+（截图由 `test/preview.mjs` 用真实主题 token 渲染，与 DSH 内的实际面板一致，只是外壳简化。）
 
 ## 安全边界
 
 - 所有路径先过技能名白名单（`^[a-z0-9]+(?:-[a-z0-9]+)*$`），再做 realpath 校验，
   写操作只允许落在上述四个技能根目录内；
 - 写入是 tmp 文件 + rename 的原子替换，且写前回读校验 frontmatter；
-- 删除只作用于解析后的 `SKILL.md` 所在技能目录，UI 会二次确认。
+- 删除只作用于解析后的 `SKILL.md` 所在技能目录，UI 会二次确认；
+- 跨层复制/移动整包进行（`scripts/` 等支撑文件一起走，`.git` 与 `node_modules` 不带过去），
+  单包上限 32 MiB；移动是「先写目标、再删源」，删源失败会逐条报 `SOURCE_REMOVE_FAILED`。
 
 ## 验证
 
-- `test/host.test.mjs`（12 项）：假 ctx 覆盖 list 的四级 tier 与覆盖判定、按 rootId 读取被覆盖技能、
+- `test/host.test.mjs`（24 项）：假 ctx 覆盖 list 的四级 tier 与覆盖判定、按 rootId 读取被覆盖技能、
   write→read 往返、toggle 保留正文、平铺 `<name>.md` 原地覆盖、`skills_manage` 的
   create/update→write 映射、delete、非法名（`../escape`、`a/b`、`UPPER`、空名）、
-  frontmatter 名不匹配、缺失根可写、未知会话返回 `SESSION_NOT_FOUND`。
-- `test/client.smoke.mjs`（12 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
+  frontmatter 名不匹配、缺失根可写、未知会话返回 `SESSION_NOT_FOUND`、链接技能读写与只解除链接、
+  跨层复制/移动（含整包复制、冲突、同层目标）、批量 delete/invocation/transfer 与逐条失败。
+- `test/client.smoke.mjs`（23 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
   zh/en key 对齐、样式注入与清理、空态零请求、相对 URL + sessionId、四级分组渲染（优先级数字、
   缺失/只读提示只在异常层出现）、详情→toggle→编辑→保存往返、新建模板、被覆盖行按自身 rootId
-  读取/删除/编辑。
+  读取/删除/编辑、筛选条与清除、选择模式与 Esc、筛选变化裁剪选中、本层全选只覆盖可见行、
+  Shift 连选、批量 delete/move 请求体、部分失败展开、请求级错误条。
 - `test/probe.mjs`：在真实 `~/.dsh/skills`、`~/.agents/skills` 上跑完整 list，得到
   `{project:1, global:44, total:45, shadowed:20, broken:0}`、`linkedCount: 20`（20 条同名覆盖
   按 rank 正确标出）。
