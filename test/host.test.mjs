@@ -7,7 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtemp, mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, stat, rm, readdir } from 'node:fs/promises'
 import { symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { gzipSync } from 'node:zlib'
@@ -934,4 +934,120 @@ test('updateSkills handles one physical package once per batch', async () => {
     assert.equal(response.body.counts.ok, 2)
     assert.equal(response.body.results[1].status, 'skipped')
   }, { deps: { fetchImpl } })
+})
+
+/* ------------------------------------------------------------------ *
+ * Review regressions: prune, atomic overwrite, hashed up-to-date, lock codes
+ * ------------------------------------------------------------------ */
+
+/** Fetch stub that answers the default branch, a tree and one codeload archive. */
+function updateFetch({ tree, tar }) {
+  return async (url) => {
+    if (url.includes('/git/trees/')) return jsonResponse(tree)
+    if (url.startsWith('https://api.github.com/repos/')) return jsonResponse({ default_branch: 'main' })
+    if (url.startsWith('https://codeload.github.com/')) return bufferResponse(tar)
+    return { ok: false, status: 404, async json() { return {} }, async arrayBuffer() { return Buffer.alloc(0) } }
+  }
+}
+
+test('updateSkills keeps two backups for the updated skill and touches no other backup', async () => {
+  const name = 'trimmed'
+  const tar = makeTarGz([{ path: `repo-main/skills/${name}/SKILL.md`, content: SKILL.replaceAll('demo-skill', name) }])
+  const tree = { sha: 'r'.repeat(40), tree: [{ path: `skills/${name}`, type: 'tree', sha: '5'.repeat(40) }] }
+  await withSandbox(async ({ call, agentsHome }) => {
+    const root = join(agentsHome, 'skills')
+    await mkdir(join(root, name), { recursive: true })
+    await writeFile(join(root, name, 'SKILL.md'), SKILL.replaceAll('demo-skill', name))
+    for (const stamp of ['20250101000001', '20250101000002', '20250101000003', '20250101000004']) {
+      await mkdir(join(root, `.dsh-bak-${stamp}-${name}`), { recursive: true })
+    }
+    // A different skill whose name merely contains ours must survive.
+    await mkdir(join(root, `.dsh-bak-20250101000005-${name}-extra`), { recursive: true })
+    await writeGlobalLock(agentsHome, {
+      [name]: { source: 'acme/tools', sourceType: 'github', skillPath: `skills/${name}`, skillFolderHash: '1'.repeat(40) },
+    })
+
+    const response = await call('updateSkills', { items: [{ name, rootId: 'global-agents' }], force: true })
+    assert.equal(response.body.counts.ok, 1, JSON.stringify(response.body))
+    const backups = (await readdir(root)).filter((entry) => /^\.dsh-bak-\d{14}-/.test(entry))
+    const mine = backups.filter((entry) => new RegExp(`^\\.dsh-bak-\\d{14}-${name}$`).test(entry))
+    assert.equal(mine.length, 2, backups.join(', '))
+    assert.ok(backups.includes(`.dsh-bak-20250101000005-${name}-extra`), backups.join(', '))
+  }, { deps: { fetchImpl: updateFetch({ tree, tar }) } })
+})
+
+test('a failed overwrite transfer leaves the previous target intact', async () => {
+  await withSandbox(async ({ call, projectDir }) => {
+    // The source package cannot be validated: its frontmatter names another skill.
+    await mkdir(join(projectDir, '.dsh', 'skills', 'broken'), { recursive: true })
+    await writeFile(join(projectDir, '.dsh', 'skills', 'broken', 'SKILL.md'), SKILL.replaceAll('demo-skill', 'something-else'))
+    const target = join(projectDir, '.agents', 'skills', 'broken')
+    await mkdir(target, { recursive: true })
+    await writeFile(join(target, 'SKILL.md'), SKILL.replaceAll('demo-skill', 'broken').replace('Body.', 'KEEP THIS TARGET.'))
+
+    const response = await call('transfer', {
+      name: 'broken',
+      rootId: 'project-dsh',
+      targetRootId: 'project-agents',
+      mode: 'copy',
+      conflict: 'overwrite',
+    })
+    assert.equal(response.body.ok, false, JSON.stringify(response.body))
+    assert.equal(response.body.error.code, 'NAME_MISMATCH')
+    assert.match(await readFile(join(target, 'SKILL.md'), 'utf8'), /KEEP THIS TARGET/)
+  })
+})
+
+test('a content-hashed update reports up-to-date instead of rewriting the same bytes', async () => {
+  const name = 'hashed-twice'
+  const tar = makeTarGz([{ path: `repo-main/skills/${name}/SKILL.md`, content: SKILL.replaceAll('demo-skill', name) }])
+  const fetchImpl = async (url) => {
+    if (url.startsWith('https://api.github.com/repos/')) return jsonResponse({ default_branch: 'main' })
+    if (url.startsWith('https://codeload.github.com/')) return bufferResponse(tar)
+    return { ok: false, status: 404, async json() { return {} }, async arrayBuffer() { return Buffer.alloc(0) } }
+  }
+  await withSandbox(async ({ call, agentsHome }) => {
+    await writeGlobalLock(agentsHome, {
+      [name]: { source: 'acme/tools', sourceType: 'git', sourceUrl: 'https://github.com/acme/tools.git', skillPath: `skills/${name}`, skillFolderHash: '1'.repeat(64) },
+    })
+    const first = await call('updateSkills', { items: [{ name, rootId: 'global-agents' }] })
+    assert.equal(first.body.results[0].status, 'installed', JSON.stringify(first.body))
+    const second = await call('updateSkills', { items: [{ name, rootId: 'global-agents' }] })
+    assert.equal(second.body.results[0].status, 'up-to-date', JSON.stringify(second.body))
+    assert.equal(second.body.results[0].backupPath, undefined)
+    const backups = (await readdir(join(agentsHome, 'skills'))).filter((entry) => entry.startsWith('.dsh-bak-'))
+    assert.deepEqual(backups, [])
+  }, { deps: { fetchImpl } })
+})
+
+test('checkUpdates surfaces an unsupported lock version as its own code', async () => {
+  await withSandbox(async ({ call, agentsHome }) => {
+    await writeFile(join(agentsHome, '.skill-lock.json'), JSON.stringify({ version: 2, skills: {} }))
+    const response = await call('checkUpdates', {})
+    assert.equal(response.body.ok, false, JSON.stringify(response.body))
+    assert.equal(response.body.error.code, 'LOCK_VERSION_UNSUPPORTED')
+  })
+})
+
+test('read returns the upstream metadata of a managed skill', async () => {
+  await withSandbox(async ({ call, agentsHome }) => {
+    const dir = join(agentsHome, 'skills', 'managed')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), SKILL.replaceAll('demo-skill', 'managed'))
+    await writeGlobalLock(agentsHome, {
+      managed: {
+        source: 'obra/superpowers',
+        sourceType: 'github',
+        sourceUrl: 'https://github.com/obra/superpowers',
+        skillPath: 'skills/managed',
+        skillFolderHash: 'a'.repeat(40),
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      },
+    })
+    const response = await call('read', { name: 'managed', rootId: 'global-agents' })
+    assert.equal(response.body.ok, true, JSON.stringify(response.body))
+    assert.equal(response.body.updatable, true)
+    assert.equal(response.body.upstream.repo, 'obra/superpowers')
+    assert.equal(response.body.upstream.hash, 'a'.repeat(40))
+  })
 })

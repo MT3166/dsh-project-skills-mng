@@ -3246,7 +3246,13 @@ window.__ModuleLoader__.load({
           : skill.upstream !== null && skill.upstream !== undefined
             ? skill.upstream
             : null
-      const managed = upstream !== null && typeof upstream === 'object'
+      // Only the global tier's locks can be updated by this plugin, so a project
+      // lock row shows its source but never a check/update action.
+      const updatable =
+        detail !== null && detail !== undefined && detail.updatable !== undefined
+          ? detail.updatable === true
+          : skill.updatable !== false
+      const managed = upstream !== null && typeof upstream === 'object' && updatable
       const upstreamRepo = managed && typeof upstream.repo === 'string' ? upstream.repo : ''
       const upstreamPath = managed && typeof upstream.skillPath === 'string' ? upstream.skillPath : ''
       const upstreamHash = managed && typeof upstream.hash === 'string' ? upstream.hash : ''
@@ -3855,6 +3861,29 @@ window.__ModuleLoader__.load({
         loadList()
       }, [sessionId, loadList])
 
+      // Switching sessions invalidates every row, detail and pending edit: without
+      // this reset an open detail would keep showing session A's skill while its
+      // delete/update posts to session B.
+      const previousSessionRef = React.useRef(sessionId)
+      React.useEffect(() => {
+        if (previousSessionRef.current === sessionId) return
+        previousSessionRef.current = sessionId
+        abortRef.current.abort()
+        abortRef.current = new AbortController()
+        setPhase({ name: 'list' })
+        setDetailState(null)
+        setEditState(null)
+        setCreateState(null)
+        setActionError(null)
+        setSelecting(false)
+        setSelection({})
+        setPending(null)
+        setBatch(null)
+        setChecks(null)
+        setUpdateError(null)
+        setBusy(false)
+      }, [sessionId])
+
       // Clear a pending search timer when the panel unmounts.
       React.useEffect(
         () => () => {
@@ -4073,6 +4102,9 @@ window.__ModuleLoader__.load({
             })
             setSelection({})
             anchorRef.current = undefined
+            // Deleting or moving rows makes the previous update verdicts stale, and
+            // verdicts are keyed by name so a re-created skill would inherit a dot.
+            if (payload.action === 'delete' || payload.action === 'transfer') setChecks(null)
             await loadList()
           } catch (error) {
             const failure = toFailure(error)

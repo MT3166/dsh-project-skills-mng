@@ -101,20 +101,22 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
 
 ## 验证
 
-- `test/host.test.mjs`（32 项）：假 ctx 覆盖 list 的四级 tier 与覆盖判定、按 rootId 读取被覆盖技能、
+- `test/host.test.mjs`（37 项）：假 ctx 覆盖 list 的四级 tier 与覆盖判定、按 rootId 读取被覆盖技能、
   write→read 往返、toggle 保留正文、平铺 `<name>.md` 原地覆盖、`skills_manage` 的
   create/update→write 映射、delete、非法名（`../escape`、`a/b`、`UPPER`、空名）、
   frontmatter 名不匹配、缺失根可写、未知会话返回 `SESSION_NOT_FOUND`、链接技能读写与只解除链接、
-  跨层复制/移动（含整包复制、冲突、同层目标）、批量 delete/invocation/transfer 与逐条失败、
-  清单解析（全局 v3 / 项目 v1 版本门）、镜像链接合并成一行、missing 归组、
-  checkUpdates 的 40 位 tree sha 与内容哈希两条比较路径、更新时保留未知字段与哈希格式、
-  LOCAL_CHANGES/强更与备份、tar 路径穿越。
-- `test/client.smoke.mjs`（31 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
+  跨层复制/移动（含整包复制、冲突、同层目标、覆盖失败时保留旧目标）、批量
+  delete/invocation/transfer 与逐条失败、清单解析（全局 v3 / 项目 v1 版本门与专用错误码）、
+  镜像链接合并成一行、missing 归组、checkUpdates 的 40 位 tree sha 与内容哈希两条比较路径、
+  更新时保留未知字段与哈希格式、LOCAL_CHANGES/强更与备份、备份只保留两个且不误删同名前缀技能、
+  内容未变时报告 up-to-date、tar 路径穿越、read 携带来源元数据。
+- `test/client.smoke.mjs`（34 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
   zh/en key 对齐、样式注入与清理、空态零请求、相对 URL + sessionId、四级分组渲染（优先级数字、
   缺失/只读提示只在异常层出现）、详情→toggle→编辑→保存往返、新建模板、被覆盖行按自身 rootId
   读取/删除/编辑、筛选条与清除、选择模式与 Esc、筛选变化裁剪选中、本层全选只覆盖可见行、
   Shift 连选、批量 delete/move 请求体、部分失败展开、请求级错误条、筛选 chip 默认折叠与展开、
-  按维度分行的三组 chip、来源 chip 单选收窄、检查更新结果条、批量更新请求体、missing 组安装。
+  按维度分行的三组 chip、来源 chip 单选收窄、检查更新结果条、批量更新请求体、missing 组安装、
+  切换会话重置视图、项目清单行不提供更新动作、批量删除清空过期更新标记。
 - `test/probe.mjs`：在真实 `~/.dsh/skills`、`~/.agents/skills` 上跑完整 list，得到
   `{project:1, global:24, total:25, shadowed:0, broken:0}`：20 条 `~/.dsh/skills` 镜像链接与
   `~/.agents/skills` 里的同名技能合并成一行，所以覆盖数为 0、总量为 25；清单里有 27 条记录、

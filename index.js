@@ -725,6 +725,14 @@ async function readLocks(projectRoot) {
   return { global, project, warnings }
 }
 
+/** The global lock is mandatory for updates; keep its distinct failure codes. */
+function requireGlobalLock(locks) {
+  if (locks.global !== null) return locks.global
+  const unsupported = locks.warnings.find((warning) => warning.code === 'LOCK_VERSION_UNSUPPORTED')
+  if (unsupported !== undefined) throw new ApiError('LOCK_VERSION_UNSUPPORTED', unsupported.message)
+  throw new ApiError('LOCK_INVALID', 'the global skills lock is missing or unsupported')
+}
+
 function upstreamOf(entry) {
   const parsed = parseRepo(entry)
   if (parsed === undefined) return null
@@ -905,11 +913,23 @@ async function defaultBranchOf(fetchImpl, repo) {
 async function downloadRepoArchive(fetchImpl, entry) {
   const parsed = parseRepo(entry)
   if (parsed === undefined) throw new ApiError('UNSUPPORTED_SOURCE', `cannot resolve a repository for "${entry.name}"`)
-  // codeload only serves a branch-qualified path; an empty suffix answers 404.
   const ref = typeof entry.ref === 'string' && entry.ref !== '' ? entry.ref : await defaultBranchOf(fetchImpl, parsed.repo)
-  const url = `${GITHUB_CODELOAD}/${parsed.repo}/tar.gz/refs/heads/${encodeURIComponent(ref)}`
-  const buffer = await fetchBuffer(fetchImpl, url, githubHeaders())
-  return parseTar(gunzipSync(buffer))
+  // A bare ref lets codeload resolve branches, tags and commit shas alike; the
+  // branch-qualified form stays as a fallback for refs that only exist as heads.
+  const attempts = [
+    `${GITHUB_CODELOAD}/${parsed.repo}/tar.gz/${encodeURIComponent(ref)}`,
+    `${GITHUB_CODELOAD}/${parsed.repo}/tar.gz/refs/heads/${encodeURIComponent(ref)}`,
+  ]
+  let lastError
+  for (const url of attempts) {
+    try {
+      const buffer = await fetchBuffer(fetchImpl, url, githubHeaders())
+      return parseTar(gunzipSync(buffer))
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
 }
 
 function cloneRepo(gitImpl, entry, destination) {
@@ -958,7 +978,11 @@ async function readUpdateState() {
 async function writeUpdateState(state) {
   const path = join(agentsHome(), STATE_FILE)
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+  // Same tmp+rename dance as the lock: a crash mid-write must not wipe every
+  // LOCAL_CHANGES baseline (an unreadable state file is treated as empty).
+  const tmp = `${path}.tmp`
+  await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+  await rename(tmp, path)
 }
 
 async function writeLockDocument(lockPath, document) {
@@ -975,10 +999,10 @@ async function pruneBackups(rootDirectory, name) {
   } catch {
     return
   }
-  const prefix = `.dsh-bak-`
   const backups = dirents
-    .filter((dirent) => dirent.name.startsWith(prefix) && dirent.name.includes(`-${name}-`))
-    .map((dirent) => dirent.name)
+    .map((dirent) => /^\.dsh-bak-(\d{14})-(.+)$/.exec(dirent.name))
+    .filter((match) => match !== null && match[2] === name)
+    .map((match) => match[0])
     .sort()
   while (backups.length > BACKUP_KEEP) {
     const oldest = backups.shift()
@@ -1135,6 +1159,8 @@ function createApi(ctx, deps = {}) {
         const content = await readFile(located.filePath, 'utf8')
         const parsed = parseSkillDocument(content)
         if (parsed.problem !== undefined) throw new ApiError('INVALID_CONTENT', `${located.filePath}: ${parsed.problem}`)
+        const locks = await readLocks(resolved.projectRoot)
+        const lockEntry = locks.global === null ? undefined : locks.global.entries.get(name)
         return {
           name,
           path: located.filePath,
@@ -1143,6 +1169,8 @@ function createApi(ctx, deps = {}) {
           writable: root.writable,
           linked: contained.linked,
           ...(contained.linked ? { realPath: contained.realPath } : {}),
+          updatable: root.scope === 'global' && lockEntry !== undefined,
+          upstream: lockEntry === undefined ? null : upstreamOf(lockEntry),
           content,
         }
       }
@@ -1300,28 +1328,47 @@ function createApi(ctx, deps = {}) {
 
       const targetReal = await ensureRootDirectory(target, allowed)
       const conflictWith = await locateSkillFile(targetReal, name)
+      let replaced = false
       if (conflictWith !== undefined) {
         const existing = await resolveContained(targetReal, conflictWith.filePath, allowed)
         if (existing.realPath === contained.realPath) {
           throw new ApiError('INVALID_TARGET', 'source and target are the same skill package')
         }
         if (conflict !== 'overwrite') throw new ApiError('TARGET_EXISTS', `"${name}" already exists in ${target.path}`)
-        await removeSkillEntry(targetReal, name, allowed)
+        replaced = true
       }
 
+      // Build the whole entry next to its destination inside the target root, validate
+      // it there, and only then swap it in. An overwrite must never destroy the
+      // previous entry before the replacement is known to be complete.
+      const stamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)
+      let stage
+      let destination
       let targetPath
-      if (kind === 'file') {
-        const text = await readFile(contained.realPath, 'utf8')
-        validateTransferredDocument(text, name)
-        targetPath = join(targetReal, `${name}.md`)
-        await writeFile(targetPath, text, 'utf8')
-      } else {
-        const destination = join(targetReal, name)
-        const budget = { used: 0, limit: MAX_PACKAGE_BYTES }
-        await copySkillPackage(sourceDirectory ?? dirname(contained.realPath), destination, budget)
-        targetPath = join(destination, 'SKILL.md')
-        validateTransferredDocument(await readFile(targetPath, 'utf8'), name)
+      try {
+        if (kind === 'file') {
+          const text = await readFile(contained.realPath, 'utf8')
+          validateTransferredDocument(text, name)
+          destination = join(targetReal, `${name}.md`)
+          stage = join(targetReal, `.dsh-stage-${stamp}-${name}.md`)
+          await writeFile(stage, text, 'utf8')
+        } else {
+          destination = join(targetReal, name)
+          stage = join(targetReal, `.dsh-stage-${stamp}-${name}`)
+          await copySkillPackage(sourceDirectory ?? dirname(contained.realPath), stage, {
+            used: 0,
+            limit: MAX_PACKAGE_BYTES,
+          })
+          validateTransferredDocument(await readFile(join(stage, 'SKILL.md'), 'utf8'), name)
+        }
+        if (replaced) await removeSkillEntry(targetReal, name, allowed)
+        await rename(stage, destination)
+        stage = undefined
+      } catch (error) {
+        if (stage !== undefined) await rm(stage, { recursive: true, force: true }).catch(() => {})
+        throw error
       }
+      targetPath = kind === 'file' ? destination : join(destination, 'SKILL.md')
 
       let unlinked = false
       if (mode === 'move') {
@@ -1372,7 +1419,15 @@ function createApi(ctx, deps = {}) {
           ...(error.details ?? {}),
         }
       }
-      throw error
+      // A filesystem hiccup (EPERM/EBUSY/ENOSPC) must not discard the results of
+      // the items that were already applied: report it as a failed item.
+      return {
+        name: item.name,
+        rootId: item.rootId,
+        ok: false,
+        code: 'ITEM_FAILED',
+        message: errorMessage(error),
+      }
     }
   }
 
@@ -1475,7 +1530,7 @@ function createApi(ctx, deps = {}) {
   api.checkUpdates = async (payload) => {
     const resolved = await session(payload)
     const locks = await readLocks(resolved.projectRoot)
-    if (locks.global === null) throw new ApiError('LOCK_INVALID', 'the global skills lock is missing or unsupported')
+    requireGlobalLock(locks)
     const wanted = Array.isArray(payload?.names) ? new Set(payload.names.filter((name) => typeof name === 'string')) : null
     const targets = [...locks.global.entries.values()].filter((entry) => wanted === null || wanted.has(entry.name))
     const results = []
@@ -1531,7 +1586,7 @@ function createApi(ctx, deps = {}) {
     try {
       const resolved = await session(payload)
       const locks = await readLocks(resolved.projectRoot)
-      if (locks.global === null) throw new ApiError('LOCK_INVALID', 'the global skills lock is missing or unsupported')
+      requireGlobalLock(locks)
       const lockDocument = (await readJsonDocument(globalLockPath())).value
       const agentsRoot = await ensureAgentsRoot()
       const state = await readUpdateState()
@@ -1565,13 +1620,20 @@ function createApi(ctx, deps = {}) {
           }
           results.push({ name, rootId: item.rootId, ok: true, ...outcome.result })
         } catch (error) {
-          if (!(error instanceof ApiError)) throw error
-          results.push({ name, rootId: item.rootId, ok: false, code: error.code, message: error.message, ...(error.details ?? {}) })
+          if (error instanceof ApiError) {
+            results.push({ name, rootId: item.rootId, ok: false, code: error.code, message: error.message, ...(error.details ?? {}) })
+          } else {
+            // Never abandon the loop: earlier items already replaced files on disk
+            // and still need their lock hash and snapshot written.
+            results.push({ name, rootId: item.rootId, ok: false, code: 'ITEM_FAILED', message: errorMessage(error) })
+          }
         }
       }
-      if (lockDocument !== undefined && lockDocument !== null) await writeLockDocument(globalLockPath(), lockDocument)
-      await writeUpdateState(state)
       const ok = results.filter((result) => result.ok).length
+      if (ok > 0) {
+        if (lockDocument !== undefined && lockDocument !== null) await writeLockDocument(globalLockPath(), lockDocument)
+        await writeUpdateState(state)
+      }
       return { results, counts: { ok, failed: results.length - ok } }
     } finally {
       updating = false
@@ -1591,7 +1653,11 @@ function createApi(ctx, deps = {}) {
     if (exists) {
       localHash = await computeFolderHash(physical)
       const baseline = state.skills[name]?.localHash
-      const modified = typeof baseline === 'string' ? baseline !== localHash : false
+      // The CLI can rewrite a package outside the panel; when the folder still
+      // matches the hash recorded in the lock it is unmodified regardless of our
+      // older snapshot, so do not refuse a legitimate upstream update.
+      const matchesLock = String(localHash).toLowerCase() === String(entry.hash).toLowerCase()
+      const modified = typeof baseline === 'string' ? baseline !== localHash && !matchesLock : false
       if (modified && !force) {
         throw new ApiError('LOCAL_CHANGES', `"${name}" has local changes; pass force to overwrite them`)
       }
@@ -1640,7 +1706,15 @@ function createApi(ctx, deps = {}) {
       const text = await readFile(skillFile, 'utf8').catch(() => undefined)
       if (text === undefined) throw new ApiError('UPSTREAM_PATH_MISSING', 'the upstream skill has no SKILL.md')
       validateTransferredDocument(text, name)
-      if (!isTreeHash) upstreamHash = await computeFolderHash(stage)
+      if (!isTreeHash) {
+        upstreamHash = await computeFolderHash(stage)
+        // Content-hash sources have no tree sha to compare against, so the only
+        // honest "nothing to do" answer comes from hashing what we just staged.
+        if (exists && upstreamHash === localHash) {
+          state.skills[name] = { localHash, syncedAt: new Date().toISOString() }
+          return { result: { status: 'up-to-date', upstreamHash } }
+        }
+      }
 
       let backupPath
       if (exists) {

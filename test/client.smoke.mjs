@@ -1776,3 +1776,57 @@ test('updating the selection posts one updateSkills request', async () => {
   })
   assert.equal(includesText(runtime, 'success=2 failed=0'), true)
 })
+
+test('switching sessions drops the open detail and reloads for the new session', async () => {
+  const host = createHostStub()
+  const { runtime, body, calls } = await mountPanel(host)
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  assert.equal(findAllByClass(runtime, 'dps-detail').length, 1)
+
+  runtime.mount(
+    runtime.React.createElement(body, panelProps({ t: parameterizedTranslate, sessionId: 'session-2' })),
+  )
+  await runtime.settle()
+
+  assert.equal(findAllByClass(runtime, 'dps-detail').length, 0)
+  assert.equal(findAllByClass(runtime, 'dps-list').length, 1)
+  const listCall = calls.filter((call) => call.method === 'list').pop()
+  assert.equal(listCall.body.sessionId, 'session-2')
+})
+
+test('a project-lock row shows its source but offers no update controls', async () => {
+  const host = createHostStub()
+  host.list.tiers[0].skills[0].updatable = false
+  const { runtime } = await mountPanel(host)
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+
+  const labels = findAll(runtime, (node) => node.kind === 'host' && node.type === 'button').map(textOf)
+  assert.equal(labels.includes('L:detail.checkUpdate'), false)
+  assert.equal(labels.includes('L:detail.update'), false)
+  assert.equal(includesText(runtime, 'L:detail.sourceLocal'), true)
+})
+
+test('a batch delete clears the stale update verdicts', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:check.button').props.onClick()
+  await runtime.settle()
+  assert.equal(findAllByClass(runtime, 'dps-update-dot').length, 1)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:batch.delete').props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:batch.confirm').props.onClick()
+  await runtime.settle()
+
+  assert.equal(findAllByClass(runtime, 'dps-update-dot').length, 0)
+  assert.equal(includesText(runtime, 'updates available'), false)
+})
