@@ -642,8 +642,7 @@ function setup() {
 
 function respond(method, payload) {
   if (method === 'list') return activeList
-  if (method === 'read') {
-    const isLinked = payload.name === 'brainstorming'
+  if (method === 'read') {    const isLinked = payload.name === 'brainstorming'
     return {
       ok: true,
       name: payload.name,
@@ -656,6 +655,24 @@ function respond(method, payload) {
       linked: isLinked,
       ...(isLinked ? { realPath: 'C:\\Users\\honor\\.agents\\skills\\brainstorming\\SKILL.md' } : {}),
       content: DETAIL_CONTENT.replaceAll('demo-skill', payload.name),
+    }
+  }
+  if (method === 'batch') {
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    const results = items.map((item, index) => ({
+      name: item.name,
+      rootId: item.rootId,
+      ok: index === 0,
+      ...(index === 0 ? {} : { code: 'TARGET_EXISTS', message: '目标层已存在同名条目，已跳过。' }),
+    }))
+    return {
+      ok: true,
+      summary: {
+        total: items.length,
+        succeeded: items.length > 0 ? 1 : 0,
+        failed: Math.max(items.length - 1, 0),
+      },
+      results,
     }
   }
   if (method === 'roots') return { ok: true, roots: [] }
@@ -683,6 +700,16 @@ function translator(env) {
 /* ------------------------------------------------------------------ *
  * States                                                              *
  * ------------------------------------------------------------------ */
+
+function typeInto(runtime, className, value) {
+  const input = findAll(runtime, (node) => hasClass(node, className))[0]
+  if (input === undefined) throw new Error('missing input ' + className)
+  input.props.onChange({ target: { value } })
+}
+
+function clickButton(runtime, label) {
+  click(runtime, (node) => node.kind === 'host' && node.type === 'button' && textOf(node) === label)
+}
 
 async function capture(state) {
   activeList = state === 'empty' ? emptyList() : LIST
@@ -714,6 +741,40 @@ async function capture(state) {
   if (state === 'create') {
     click(runtime, (node) => node.kind === 'host' && node.type === 'button' && textOf(node) === t('list.new'))
     await runtime.settle()
+  }
+  if (state === 'list-filtered') {
+    typeInto(runtime, 'dps-search', 'demo')
+    // The search box debounces by 120 ms.
+    await new Promise((resolve) => setTimeout(resolve, 160))
+    await runtime.settle()
+    // Show a switched-off tier chip next to the active search.
+    click(
+      runtime,
+      (node) => hasClass(node, 'dps-chip') && node.props['data-tier'] === 'project-agents',
+    )
+    await runtime.settle()
+  }
+  if (state === 'list-selecting' || state === 'batch-result') {
+    clickButton(runtime, t('list.select'))
+    await runtime.settle()
+    click(runtime, (node) => hasClass(node, 'dps-row') && textOf(node).includes('demo-skill'))
+    await runtime.settle()
+    click(runtime, (node) => hasClass(node, 'dps-row') && textOf(node).includes('release-notes'))
+    await runtime.settle()
+  }
+  if (state === 'batch-result') {
+    clickButton(runtime, t('batch.delete'))
+    await runtime.settle()
+    clickButton(runtime, t('batch.confirm'))
+    await runtime.settle()
+    const showFailures = findAll(
+      runtime,
+      (node) => node.kind === 'host' && node.type === 'button' && textOf(node) === t('batch.view'),
+    )[0]
+    if (showFailures !== undefined) {
+      showFailures.props.onClick({})
+      await runtime.settle()
+    }
   }
 
   return { html: serialize(runtime.nodes()), documentStub, env }
@@ -794,6 +855,9 @@ function page({ title, css, html, theme }) {
 
 const STATES = [
   ['list', '列表态'],
+  ['list-filtered', '筛选后的列表'],
+  ['list-selecting', '多选模式'],
+  ['batch-result', '批量结果'],
   ['detail', '详情态'],
   ['detail-linked', '链接技能详情'],
   ['edit', '编辑态'],

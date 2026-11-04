@@ -686,6 +686,18 @@ function createHostStub() {
         content: 'toggled: ' + payload.field + '=' + String(payload.value),
       }
     }
+    if (method === 'batch') {
+      const items = Array.isArray(payload.items) ? payload.items : []
+      return {
+        ok: true,
+        summary: { total: items.length, succeeded: items.length, failed: 0 },
+        results: items.map((item) => ({
+          name: item.name,
+          rootId: item.rootId,
+          ok: true,
+        })),
+      }
+    }
     return { ok: false, error: { code: 'NOT_FOUND', message: 'no stub for ' + method } }
   }
 
@@ -1130,4 +1142,365 @@ test('host errors are shown in the panel instead of escaping the render', async 
   assert.equal(includesText(runtime, 'L:error.title'), true)
   assert.equal(includesText(runtime, 'INTERNAL'), true)
   assert.equal(includesText(runtime, 'boom'), true)
+})
+
+/* ---------------------------------------------------------------------- *
+ * Filters and multi-select batch actions (batch-and-filter feature)      *
+ * ---------------------------------------------------------------------- */
+
+// Templates with placeholders so tests can assert the interpolated numbers.
+const PARAM_TEMPLATES = {
+  'batch.result': 'success={succeeded} failed={failed}',
+  'selection.count': 'selected={count}',
+  'batch.confirmDelete': 'delete {count}',
+  'batch.confirmDeleteLinked': 'delete {count} linked={linked}',
+  'batch.confirmMove': 'move {count} to={to}',
+  'batch.confirmCopy': 'copy {count} to={to}',
+  'batch.failure': '{name};{reason}',
+  'shadowed.by': 'shadowed by {path}',
+  'error.sourceRemoveFailed': 'source-remove-failed',
+}
+
+function parameterizedTranslate(key) {
+  return Object.prototype.hasOwnProperty.call(PARAM_TEMPLATES, key)
+    ? PARAM_TEMPLATES[key]
+    : 'L:' + key
+}
+
+async function mountPanel(host, overrides = {}) {
+  const result = setup({ responder: host.respond })
+  result.runtime.mount(
+    result.runtime.React.createElement(
+      result.body,
+      panelProps({ t: parameterizedTranslate, ...overrides }),
+    ),
+  )
+  await result.runtime.settle()
+  return result
+}
+
+async function typeQuery(runtime, value) {
+  const search = findAllByClass(runtime, 'dps-search')
+  assert.equal(search.length, 1, 'expected one search input')
+  search[0].props.onChange({ target: { value: value } })
+  await runtime.settle()
+  // The search box is debounced; wait past the debounce window.
+  await new Promise((resolve) => setTimeout(resolve, 160))
+  await runtime.settle()
+}
+
+function visibleNames(runtime) {
+  return findAllByClass(runtime, 'dps-name').map((node) => textOf(node))
+}
+
+function tierChip(runtime, rootId) {
+  const chips = findAllByClass(runtime, 'dps-chip').filter(
+    (node) => node.props['data-tier'] === rootId,
+  )
+  assert.equal(chips.length, 1, 'expected a chip for tier ' + rootId)
+  return chips[0]
+}
+
+function rowCheckboxes(runtime) {
+  return findAllByClass(runtime, 'dps-check')
+}
+
+function selectedNames(runtime) {
+  const checks = rowCheckboxes(runtime)
+  const names = findAllByClass(runtime, 'dps-name')
+  return checks
+    .map((check, index) => (check.props.checked === true ? textOf(names[index]) : null))
+    .filter((name) => name !== null)
+}
+
+test('filters narrow the visible rows by query and tier', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill', 'beta-skill'])
+
+  await typeQuery(runtime, 'ALPHA')
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill'])
+
+  tierChip(runtime, 'project-dsh').props.onClick()
+  await runtime.settle()
+  assert.deepEqual(visibleNames(runtime), [])
+  assert.equal(includesText(runtime, 'L:filter.empty'), true)
+})
+
+test('turning a tier chip off hides that tier and its count', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  assert.equal(findAllByClass(runtime, 'dps-group').length, 4)
+
+  tierChip(runtime, 'project-dsh').props.onClick()
+  await runtime.settle()
+
+  assert.deepEqual(visibleNames(runtime), [])
+  assert.equal(findAllByClass(runtime, 'dps-group').length, 3)
+  const ranks = findAllByClass(runtime, 'dps-rank').map((node) => textOf(node))
+  assert.deepEqual(ranks, ['200', '400', '500'])
+  // The tiers left over still show their one-line empty hint.
+  assert.equal(findAllByClass(runtime, 'dps-hint').length >= 3, true)
+})
+
+test('the filter bar shows a clear button only when a filter is active', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  assert.equal(findAllByClass(runtime, 'dps-clear').length, 0)
+
+  await typeQuery(runtime, 'beta')
+  assert.equal(findAllByClass(runtime, 'dps-clear').length, 1)
+
+  findAllByClass(runtime, 'dps-clear')[0].props.onClick()
+  await runtime.settle()
+  assert.equal(findAllByClass(runtime, 'dps-clear').length, 0)
+  assert.equal(findAllByClass(runtime, 'dps-search')[0].props.value, '')
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill', 'beta-skill'])
+})
+
+test('selection mode adds checkboxes and an action bar, and Esc exits', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+
+  assert.equal(rowCheckboxes(runtime).length, 2)
+  assert.equal(findAllByClass(runtime, 'dps-actionbar').length, 1)
+  assert.equal(includesText(runtime, 'selected=0'), true)
+  assert.equal(includesText(runtime, 'L:list.selectExit'), true)
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  assert.equal(includesText(runtime, 'selected=1'), true)
+  assert.equal(rowCheckboxes(runtime)[0].props.checked, true)
+  assert.equal(rowCheckboxes(runtime)[1].props.checked, false)
+
+  findAllByClass(runtime, 'dps-list')[0].props.onKeyDown({
+    key: 'Escape',
+    preventDefault() {},
+  })
+  await runtime.settle()
+
+  assert.equal(rowCheckboxes(runtime).length, 0)
+  assert.equal(findAllByClass(runtime, 'dps-actionbar').length, 0)
+  // Leaving selection mode restores the plain "select" toolbar button.
+  assert.equal(findButton(runtime, 'L:list.select') !== undefined, true)
+})
+
+test('filtering hidden rows out also removes them from the selection', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[1].props.onClick()
+  await runtime.settle()
+  assert.equal(includesText(runtime, 'selected=2'), true)
+
+  await typeQuery(runtime, 'alpha')
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill'])
+  assert.equal(includesText(runtime, 'selected=1'), true)
+
+  // Clearing the filter must not resurrect the pruned row.
+  findAllByClass(runtime, 'dps-clear')[0].props.onClick()
+  await runtime.settle()
+  assert.deepEqual(visibleNames(runtime), ['alpha-skill', 'beta-skill'])
+  assert.deepEqual(selectedNames(runtime), ['alpha-skill'])
+})
+
+test('shift-click extends the selection across the visible row order', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[1].props.onClick({ shiftKey: true })
+  await runtime.settle()
+
+  assert.equal(includesText(runtime, 'selected=2'), true)
+  assert.deepEqual(selectedNames(runtime), ['alpha-skill', 'beta-skill'])
+})
+
+test('select-all in a tier covers only the rows the filter leaves visible', async () => {
+  const host = createHostStub()
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+
+  await typeQuery(runtime, 'beta')
+  assert.deepEqual(visibleNames(runtime), ['beta-skill'])
+
+  const selectAll = findAllByClass(runtime, 'dps-select-all').filter(
+    (node) => node.props['data-tier'] === 'project-dsh',
+  )
+  assert.equal(selectAll.length, 1)
+  selectAll[0].props.onClick()
+  await runtime.settle()
+  assert.deepEqual(selectedNames(runtime), ['beta-skill'])
+})
+
+test('deleting the selection posts one batch request and refreshes the list', async () => {
+  const host = createHostStub()
+  const { runtime, calls } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[1].props.onClick()
+  await runtime.settle()
+
+  findButton(runtime, 'L:batch.delete').props.onClick()
+  await runtime.settle()
+  // Deleting plain skills confirms with the plain copy.
+  assert.equal(includesText(runtime, 'delete 2'), true)
+
+  findButton(runtime, 'L:batch.confirm').props.onClick()
+  await runtime.settle()
+
+  const batchCall = calls.find((call) => call.method === 'batch')
+  assert.ok(batchCall !== undefined, 'the batch endpoint was called')
+  assert.deepEqual(JSON.parse(JSON.stringify(batchCall.body)), {
+    sessionId: 'session-1',
+    action: 'delete',
+    items: [
+      { name: 'alpha-skill', rootId: 'project-dsh' },
+      { name: 'beta-skill', rootId: 'project-agents' },
+    ],
+  })
+  assert.equal(calls.filter((call) => call.method === 'list').length, 2)
+  assert.equal(includesText(runtime, 'success=2 failed=0'), true)
+})
+
+test('a move keeps the own tier in the target list and always sends conflict skip', async () => {
+  const host = createHostStub()
+  const { runtime, calls } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+
+  const moveSelect = findAll(
+    runtime,
+    (node) =>
+      node.kind === 'host' && node.type === 'select' && node.props['data-action'] === 'move',
+  )
+  assert.equal(moveSelect.length, 1)
+
+  // The row's own tier stays selectable; the host rejects that item per row.
+  const ownTarget = findAll(
+    runtime,
+    (node) =>
+      node.kind === 'host' &&
+      node.type === 'option' &&
+      node.props['data-target'] === 'project-dsh',
+  )
+  assert.ok(ownTarget.length >= 1, 'own tier must remain a legal target')
+
+  moveSelect[0].props.onChange({ target: { value: 'project-dsh' } })
+  await runtime.settle()
+  assert.equal(includesText(runtime, 'move 1 to='), true)
+
+  findButton(runtime, 'L:batch.confirm').props.onClick()
+  await runtime.settle()
+
+  const batchCall = calls.find((call) => call.method === 'batch')
+  assert.ok(batchCall !== undefined)
+  assert.deepEqual(JSON.parse(JSON.stringify(batchCall.body)), {
+    sessionId: 'session-1',
+    action: 'transfer',
+    transferMode: 'move',
+    conflict: 'skip',
+    target: { rootId: 'project-dsh' },
+    items: [{ name: 'alpha-skill', rootId: 'project-dsh' }],
+  })
+})
+
+test('a partial failure is reported once and can be expanded', async () => {
+  const host = createHostStub()
+  const baseRespond = host.respond
+  host.respond = (method, payload) => {
+    if (method === 'batch') {
+      return {
+        ok: true,
+        summary: { total: 3, succeeded: 1, failed: 2 },
+        results: [
+          { name: 'alpha-skill', rootId: 'project-dsh', ok: true },
+          {
+            name: 'beta-skill',
+            rootId: 'project-agents',
+            ok: false,
+            code: 'TARGET_EXISTS',
+            message: 'target root already has this skill',
+          },
+          {
+            name: 'gamma-moved',
+            rootId: 'project-dsh',
+            ok: false,
+            code: 'SOURCE_REMOVE_FAILED',
+            targetPath: 'D:/global/.dsh/skills/gamma-moved/skill.md',
+          },
+        ],
+      }
+    }
+    return baseRespond(method, payload)
+  }
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[1].props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:batch.delete').props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:batch.confirm').props.onClick()
+  await runtime.settle()
+
+  assert.equal(findAllByClass(runtime, 'dps-result').length, 1)
+  assert.equal(includesText(runtime, 'success=1 failed=2'), true)
+  assert.equal(findAllByClass(runtime, 'dps-failure').length, 0, 'collapsed by default')
+
+  findButton(runtime, 'L:batch.view').props.onClick()
+  await runtime.settle()
+  assert.equal(findAllByClass(runtime, 'dps-failure').length, 2)
+  assert.equal(includesText(runtime, 'beta-skill;'), true)
+  assert.equal(includesText(runtime, 'L:code.TARGET_EXISTS'), true)
+  assert.equal(includesText(runtime, 'gamma-moved;source-remove-failed'), true)
+})
+
+test('a batch request failure becomes a panel error bar, not a crash', async () => {
+  const host = createHostStub()
+  const baseRespond = host.respond
+  host.respond = (method, payload) => {
+    if (method === 'batch') {
+      return { ok: false, error: { code: 'TOO_MANY_ITEMS', message: 'at most 100' } }
+    }
+    return baseRespond(method, payload)
+  }
+  const { runtime } = await mountPanel(host)
+
+  findButton(runtime, 'L:list.select').props.onClick()
+  await runtime.settle()
+  findAllByClass(runtime, 'dps-row')[0].props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:batch.delete').props.onClick()
+  await runtime.settle()
+  findButton(runtime, 'L:batch.confirm').props.onClick()
+  await runtime.settle()
+
+  assert.equal(includesText(runtime, 'TOO_MANY_ITEMS'), true)
+  assert.equal(includesText(runtime, 'at most 100'), true)
 })

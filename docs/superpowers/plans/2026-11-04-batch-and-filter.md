@@ -449,3 +449,10 @@ Expected: `application: "applied"`, `warnings: []`；Host 侧改动需重启 DSH
 Expected: 结果与面板显示一致，`~/.dsh/skills` 的链接条目删除只解除链接。
 
 - [ ] **Step 3: 用户在 GUI 复验**：多选删除、批量关 M、跨层移动一条试验技能、筛选组合；确认后收尾。
+
+## Status (2026-11-04 16:00) — 批量与筛选
+
+- Task 1 host batch（delete/invocation）完成：`68dd7f3`。
+- Task 2 host transfer（copy/move、整包复制、链接语义）完成：`fafdd56`、`229fab8`，裁决记录 `95a7e83`。
+- Task 3/4 client 筛选 + 多选批量完成：client-dev 交付，lead 复核 `node --check`、两套测试（host 24、client 23）、18 个预览状态；补三处视觉修正（tier chip 不再删除线、退出选择去掉主按钮样式、选择模式底部留白）。
+- 仍待：Task 5 文档与截图入库、Task 6 安装重启后的真机验证、整支 fresh review。
