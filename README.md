@@ -41,19 +41,25 @@ DSH 原生已经会在会话里发现技能文件：项目技能位于 `<project
 
 ## 安装
 
-仓库地址：<https://github.com/MT3166/dsh-project-skills-mng>
+仓库地址：<https://github.com/MT3166/dsh-project-skills-mng>，npm：[`dsh-project-skills-mng`](https://www.npmjs.com/package/dsh-project-skills-mng)。
+
+从 npm 安装（推荐，带版本号可随时回退）：
 
 ```text
-git clone git@github.com:MT3166/dsh-project-skills-mng.git
+dsh plugin --profile <profile> add dsh-project-skills-mng@0.1.0
 ```
 
-在 DSH 里安装克隆下来的目录（bundle 包）：
+从任何一个迁移中的 checkout 安装：
 
 ```text
-plugin_manager action=install_bundle target=<本仓库绝对路径>
+git clone https://github.com/MT3166/dsh-project-skills-mng.git
+dsh plugin --profile <profile> add <本仓库绝对路径>
 ```
+
+在已有的 DSH 会话里也可以让 agent 代劳：`plugin_manager action=install_bundle target=dsh-project-skills-mng@0.1.0`。
 
 新装 bundle 由 HMR 直接生效；若是替换已安装的旧版本，需要重启 DSH 才会加载新的 JS。
+安装完打开一个项目会话，右栏出现「项目技能」面板即生效。
 
 ## 面板
 
@@ -70,7 +76,10 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
    失败项可展开看错误码（如目标层已有同名技能）；
 7. 来源与更新：工具栏「检查更新」查询上游（GitHub API，5 分钟缓存），结果条给出
    可更新 / 无法确认的数量；有更新的行带小圆点，点进详情可「更新」或「强制更新」，
-   多选模式里也能「更新选中」。
+   多选模式里也能「更新选中」；
+8. 全部更新：结果条里的「全部更新」把当前所有可更新技能按每批 3 个依次更新，按钮上
+   实时显示 `正在更新 3/19…`；结束后结果条换成「成功 N · 失败 M」，失败原因可展开，
+   被本地改动挡住（`LOCAL_CHANGES`）的条目可以单条「强制更新」。
 
 | 列表 | 筛选 |
 | --- | --- |
@@ -110,13 +119,14 @@ plugin_manager action=install_bundle target=<本仓库绝对路径>
   镜像链接合并成一行、missing 归组、checkUpdates 的 40 位 tree sha 与内容哈希两条比较路径、
   更新时保留未知字段与哈希格式、LOCAL_CHANGES/强更与备份、备份只保留两个且不误删同名前缀技能、
   内容未变时报告 up-to-date、tar 路径穿越、read 携带来源元数据。
-- `test/client.smoke.mjs`（34 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
+- `test/client.smoke.mjs`（35 项）：模块表格式、tab 类型/guide 卡片注册、pane body 槽注册、
   zh/en key 对齐、样式注入与清理、空态零请求、相对 URL + sessionId、四级分组渲染（优先级数字、
   缺失/只读提示只在异常层出现）、详情→toggle→编辑→保存往返、新建模板、被覆盖行按自身 rootId
   读取/删除/编辑、筛选条与清除、选择模式与 Esc、筛选变化裁剪选中、本层全选只覆盖可见行、
   Shift 连选、批量 delete/move 请求体、部分失败展开、请求级错误条、筛选 chip 默认折叠与展开、
   按维度分行的三组 chip、来源 chip 单选收窄、检查更新结果条、批量更新请求体、missing 组安装、
-  切换会话重置视图、项目清单行不提供更新动作、批量删除清空过期更新标记。
+  切换会话重置视图、项目清单行不提供更新动作、批量删除清空过期更新标记、
+  全部更新按 3 个一批分批请求与强制单条覆盖。
 - `test/probe.mjs`：在真实 `~/.dsh/skills`、`~/.agents/skills` 上跑完整 list，得到
   `{project:1, global:24, total:25, shadowed:0, broken:0}`：20 条 `~/.dsh/skills` 镜像链接与
   `~/.agents/skills` 里的同名技能合并成一行，所以覆盖数为 0、总量为 25；清单里有 27 条记录、

@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish; must match package.json (e.g. 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Check the requested version against package.json
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PACKAGE_VERSION" != "$VERSION" ]; then
+            echo "::error::package.json is $PACKAGE_VERSION but the release asks for $VERSION"
+            exit 1
+          fi
+          if node -p "require('./package.json').private === true"; then
+            echo "::error::package.json still declares private"
+            exit 1
+          fi
+
+      - name: Run the test suite
+        run: node --test test/host.test.mjs test/client.smoke.mjs
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
