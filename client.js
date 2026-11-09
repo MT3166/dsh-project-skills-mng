@@ -200,6 +200,9 @@ window.__ModuleLoader__.load({
       'check.expand': '查看原因',
       'check.collapse': '收起',
       'check.reason': '{name}：{reason}',
+      'check.updateAll': '全部更新',
+      'check.updating': '正在更新 {done}/{total}…',
+      'bulk.dismiss': '关闭',
 
       'detail.checkUpdate': '检查更新',
       'detail.update': '更新到此技能',
@@ -393,6 +396,9 @@ window.__ModuleLoader__.load({
       'check.expand': 'Show reasons',
       'check.collapse': 'Hide',
       'check.reason': '{name}: {reason}',
+      'check.updateAll': 'Update all',
+      'check.updating': 'Updating {done}/{total}…',
+      'bulk.dismiss': 'Dismiss',
 
       'detail.checkUpdate': 'Check for updates',
       'detail.update': 'Update this skill',
@@ -561,6 +567,7 @@ window.__ModuleLoader__.load({
   cursor: pointer;
 }
 .dps-link:hover { color: var(--dsw-alias-label-primary); text-decoration: underline; text-underline-offset: 2px; }
+.dps-link:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; text-decoration: none; }
 
 /* ---- groups ----------------------------------------------------------- */
 
@@ -2464,6 +2471,12 @@ window.__ModuleLoader__.load({
 
       const checks = props.checks !== null && props.checks !== undefined ? props.checks : null
       const checking = checks !== null && checks.checking === true
+      const updating = props.updating === true
+      const bulkUpdate =
+        props.bulkUpdate !== null && props.bulkUpdate !== undefined ? props.bulkUpdate : null
+      const bulkRunning = bulkUpdate !== null && bulkUpdate.running === true
+      const bulkDone = bulkRunning && typeof bulkUpdate.done === 'number' ? bulkUpdate.done : 0
+      const bulkTotal = bulkRunning && typeof bulkUpdate.total === 'number' ? bulkUpdate.total : 0
       const checkResults = checks !== null && Array.isArray(checks.results) ? checks.results : []
       const checkCounts =
         checks !== null && checks.counts !== null && checks.counts !== undefined
@@ -2601,6 +2614,24 @@ window.__ModuleLoader__.load({
                   tf(t, 'check.unknown', { count: unknown }),
                 )
               : null,
+            available > 0
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dps-link',
+                    key: 'update-all',
+                    disabled: checking || updating === true || bulkRunning,
+                    onClick: props.onUpdateAll,
+                  },
+                  bulkRunning
+                    ? tf(t, 'check.updating', {
+                        done: String(bulkDone),
+                        total: String(bulkTotal),
+                      })
+                    : t('check.updateAll'),
+                )
+              : null,
             h('span', { className: 'dps-spacer', key: 'spacer' }),
             checkIssues.length > 0
               ? h(
@@ -2636,6 +2667,87 @@ window.__ModuleLoader__.load({
               ),
             )
           }
+        }
+      }
+
+      if (bulkUpdate !== null && bulkUpdate.running !== true) {
+        const bulkSummary =
+          bulkUpdate.summary !== null && typeof bulkUpdate.summary === 'object'
+            ? bulkUpdate.summary
+            : null
+        const bulkFailed =
+          Array.isArray(bulkUpdate.results) === true
+            ? bulkUpdate.results.filter((result) => result.ok === false)
+            : []
+        if (bulkSummary !== null) {
+          parts.push(
+            h(
+              'div',
+              { className: 'dps-check-strip', key: 'bulk-strip', role: 'status' },
+              h(
+                'span',
+                { className: 'dps-check-text' },
+                tf(t, 'batch.result', {
+                  succeeded: String(bulkSummary.succeeded),
+                  failed: String(bulkSummary.failed),
+                }),
+              ),
+              h('span', { className: 'dps-spacer' }),
+              bulkFailed.length > 0
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dps-link',
+                      onClick: props.onToggleBulkDetails,
+                    },
+                    bulkUpdate.expanded === true ? t('batch.hide') : t('batch.view'),
+                  )
+                : null,
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dps-link',
+                  onClick: props.onDismissBulk,
+                },
+                t('bulk.dismiss'),
+              ),
+            ),
+          )
+        }
+        if (bulkUpdate.expanded === true && bulkFailed.length > 0) {
+          parts.push(
+            h(
+              'ul',
+              { className: 'dps-check-details', key: 'bulk-details' },
+              bulkFailed.map((result, index) => {
+                const reason = failureReason(t, result)
+                return h(
+                  'li',
+                  { key: 'bulk-' + String(index) },
+                  h(
+                    'span',
+                    null,
+                    reason === ''
+                      ? result.name
+                      : tf(t, 'check.reason', { name: result.name, reason: reason }),
+                  ),
+                  typeof result.code === 'string' && result.code === 'LOCAL_CHANGES'
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'dps-link',
+                          onClick: () => props.onForceBulk(result.name),
+                        },
+                        t('detail.forceYes'),
+                      )
+                    : null,
+                )
+              }),
+            ),
+          )
         }
       }
 
@@ -4426,6 +4538,121 @@ window.__ModuleLoader__.load({
         anchorRef.current = undefined
       }, [listState.data, selection, updateItems])
 
+      // Bulk update from the check strip: one click updates every skill the
+      // last check marked as available. Requests are chunked so the panel can
+      // show progress instead of freezing on one long request, and forcing is
+      // left per row for skills whose local files differ.
+      const BULK_CHUNK = 3
+      const [bulkUpdate, setBulkUpdate] = React.useState(null)
+
+      const runUpdateAll = React.useCallback(async () => {
+        const results =
+          checks !== null && checks !== undefined && Array.isArray(checks.results)
+            ? checks.results
+            : []
+        const names = []
+        for (const result of results) {
+          if (
+            result !== null &&
+            typeof result === 'object' &&
+            result.status === 'update-available' &&
+            typeof result.name === 'string' &&
+            result.name !== ''
+          ) {
+            names.push(result.name)
+          }
+        }
+        if (names.length === 0) return
+        setActionError(null)
+        setBulkUpdate({
+          running: true,
+          done: 0,
+          total: names.length,
+          summary: null,
+          results: [],
+          expanded: false,
+        })
+        const collected = []
+        let done = 0
+        try {
+          for (let index = 0; index < names.length; index += BULK_CHUNK) {
+            const chunk = names.slice(index, index + BULK_CHUNK)
+            const result = await api.updateSkills(
+              { items: chunk.map((name) => ({ name: name })) },
+              abortRef.current.signal,
+            )
+            if (!aliveRef.current) return
+            if (Array.isArray(result.results)) {
+              for (const entry of result.results) collected.push(entry)
+            }
+            done += chunk.length
+            setBulkUpdate((previous) =>
+              previous === null ? previous : { ...previous, done: done },
+            )
+          }
+          await loadList()
+          if (!aliveRef.current) return
+          const failed = collected.filter((entry) => entry.ok === false).length
+          setChecks(null)
+          setBulkUpdate({
+            running: false,
+            done: names.length,
+            total: names.length,
+            summary: {
+              total: collected.length,
+              succeeded: collected.length - failed,
+              failed: failed,
+            },
+            results: collected,
+            expanded: failed > 0,
+          })
+        } catch (error) {
+          const failure = toFailure(error)
+          if (failure === null || !aliveRef.current) return
+          setBulkUpdate(null)
+          setUpdateError(failure)
+        }
+      }, [api, checks, loadList])
+
+      const forceBulkItem = React.useCallback(
+        async (name) => {
+          if (typeof name !== 'string' || name === '') return
+          const outcome = await updateItems([{ name: name }], true)
+          if (outcome === null || !aliveRef.current) return
+          setBulkUpdate((previous) => {
+            if (previous === null) return previous
+            const merged = Array.isArray(previous.results) ? previous.results.slice() : []
+            for (const entry of outcome.results) {
+              const at = merged.findIndex((existing) => existing.name === entry.name)
+              if (at >= 0) merged[at] = entry
+              else merged.push(entry)
+            }
+            const failed = merged.filter((entry) => entry.ok === false).length
+            return {
+              ...previous,
+              summary: {
+                total: merged.length,
+                succeeded: merged.length - failed,
+                failed: failed,
+              },
+              results: merged,
+              expanded: failed > 0,
+            }
+          })
+        },
+        [updateItems],
+      )
+
+      const toggleBulkDetails = React.useCallback(() => {
+        setBulkUpdate((previous) =>
+          previous === null ? previous : { ...previous, expanded: previous.expanded !== true },
+        )
+      }, [])
+
+      const dismissBulk = React.useCallback(() => {
+        setBulkUpdate(null)
+      }, [])
+
       const installMissing = React.useCallback(
         async (item) => {
           const name =
@@ -4725,7 +4952,12 @@ window.__ModuleLoader__.load({
           pending: pending,
           updating: updating,
           checks: checks,
+          bulkUpdate: bulkUpdate,
           targets: transferTargets,
+          onUpdateAll: runUpdateAll,
+          onToggleBulkDetails: toggleBulkDetails,
+          onDismissBulk: dismissBulk,
+          onForceBulk: forceBulkItem,
           onRefresh: loadList,
           onCreate: openCreate,
           onOpenSkill: openDetail,

@@ -1,10 +1,26 @@
 {
   "name": "dsh-project-skills-mng",
   "version": "0.1.0",
-  "private": true,
   "description": "Browse and manage project-level and global skills from the DSH right sidebar.",
   "type": "module",
   "license": "MIT",
+  "author": "MT3166",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "deepseek-harness",
+    "skills",
+    "skill-management"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MT3166/dsh-project-skills-mng.git"
+  },
+  "homepage": "https://github.com/MT3166/dsh-project-skills-mng#readme",
+  "bugs": {
+    "url": "https://github.com/MT3166/dsh-project-skills-mng/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -18,9 +34,20 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "icon": "./icon.svg",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node --test test/host.test.mjs test/client.smoke.mjs"
+  },
   "dsh": {
     "manifestVersion": 1,
     "bundle": {

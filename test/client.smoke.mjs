@@ -1830,3 +1830,77 @@ test('a batch delete clears the stale update verdicts', async () => {
   assert.equal(findAllByClass(runtime, 'dps-update-dot').length, 0)
   assert.equal(includesText(runtime, 'updates available'), false)
 })
+
+test('the check strip updates every available skill in chunks and can force local changes', async () => {
+  const host = createHostStub()
+  const base = host.respond
+  const localChanges = new Set(['gamma-skill'])
+  host.respond = (method, payload) => {
+    if (method === 'checkUpdates') {
+      return {
+        ok: true,
+        checkedAt: '2026-11-04T09:00:00.000Z',
+        results: [
+          { name: 'alpha-skill', status: 'update-available' },
+          { name: 'beta-skill', status: 'update-available' },
+          { name: 'gamma-skill', status: 'update-available' },
+          { name: 'delta-skill', status: 'update-available' },
+          { name: 'epsilon-skill', status: 'up-to-date' },
+        ],
+        counts: { available: 4, uptodate: 1, unknown: 0 },
+      }
+    }
+    if (method === 'updateSkills') {
+      const items = Array.isArray(payload.items) ? payload.items : []
+      const results = items.map((item) =>
+        localChanges.has(item.name) && payload.force !== true
+          ? { name: item.name, ok: false, code: 'LOCAL_CHANGES', message: 'local changes' }
+          : { name: item.name, ok: true, status: 'updated' },
+      )
+      return {
+        ok: true,
+        results: results,
+        counts: {
+          ok: results.filter((result) => result.ok === true).length,
+          failed: results.filter((result) => result.ok === false).length,
+        },
+      }
+    }
+    return base(method, payload)
+  }
+  const { runtime, calls } = await mountPanel(host)
+
+  findButton(runtime, 'L:check.button').props.onClick()
+  await runtime.settle()
+  // Two of the four available skills are rows the stub catalog renders; the
+  // update itself still covers every name the check reported.
+  assert.equal(findAllByClass(runtime, 'dps-update-dot').length, 2)
+
+  findButton(runtime, 'L:check.updateAll').props.onClick()
+  await runtime.settle()
+
+  const updates = calls.filter((call) => call.method === 'updateSkills')
+  assert.equal(updates.length, 2, 'four available skills go out as 3 + 1')
+  assert.deepEqual(
+    updates[0].body.items.map((item) => item.name),
+    ['alpha-skill', 'beta-skill', 'gamma-skill'],
+  )
+  assert.deepEqual(
+    updates[1].body.items.map((item) => item.name),
+    ['delta-skill'],
+  )
+  assert.equal(updates[0].body.sessionId, 'session-1')
+  assert.equal(updates[0].body.force, undefined, 'a plain update never forces')
+  assert.equal(includesText(runtime, 'success=3 failed=1'), true)
+
+  // The failed row carries the reason and a forced retry that re-sends it alone.
+  assert.equal(includesText(runtime, 'gamma-skill'), true)
+  localChanges.clear()
+  findButton(runtime, 'L:detail.forceYes').props.onClick()
+  await runtime.settle()
+  const forced = calls.filter((call) => call.method === 'updateSkills').pop()
+  assert.deepEqual(forced.body.items, [{ name: 'gamma-skill' }])
+  assert.equal(forced.body.force, true)
+  // The strip keeps reporting the whole batch once the forced retry succeeds.
+  assert.equal(includesText(runtime, 'success=4 failed=0'), true)
+})
